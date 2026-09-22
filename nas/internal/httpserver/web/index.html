@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PS5 PKG Sender</title>
+  <style>
+    :root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b0d10;color:#f2f4f7}
+    *{box-sizing:border-box} body{margin:0;background:#0b0d10} button,input{font:inherit}
+    .shell{max-width:1180px;margin:0 auto;padding:36px 22px 64px}
+    .topbar{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;margin-bottom:28px}
+    .eyebrow{color:#7f8b99;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-bottom:7px}
+    h1{font-size:clamp(26px,4vw,38px);line-height:1.08;margin:0 0 8px}.subtitle{color:#a8b1bd;font-size:14px;margin:0}
+    .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+    .button{border:1px solid #2c333d;color:#eef2f6;background:#161a20;padding:10px 15px;border-radius:9px;cursor:pointer}
+    .button:hover{border-color:#596676;background:#1c222a}.button:disabled{opacity:.45;cursor:not-allowed}
+    .button.primary{background:#e8edf3;color:#0c1014;border-color:#e8edf3;font-weight:700}.button.primary:hover{background:#fff;border-color:#fff}
+    .statusline{min-height:42px;padding:11px 14px;border:1px solid #252b33;border-radius:10px;background:#11151a;color:#aeb8c4;margin-bottom:18px;font-size:13px;display:flex;align-items:center;gap:9px}
+    .statusdot{width:8px;height:8px;border-radius:50%;background:#5f6a76;flex:0 0 auto}.statusdot.ok{background:#63d297}.statusdot.error{background:#ff6b75}
+    .toolbar{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}.count{color:#7f8b99;font-size:13px}
+    .search{width:min(360px,60vw);border:1px solid #252b33;background:#11151a;color:#f2f4f7;border-radius:9px;padding:10px 12px;outline:none}.search:focus{border-color:#596676}
+    .grid{display:grid;gap:12px}.card{border:1px solid #222933;background:#101419;border-radius:12px;padding:17px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:center}
+    .name{font-size:15px;font-weight:720;line-height:1.35;overflow-wrap:anywhere;margin-bottom:5px}.path{color:#7f8b99;font-size:12px;line-height:1.45;overflow-wrap:anywhere;margin-bottom:11px}
+    .meta{display:flex;gap:12px;flex-wrap:wrap;color:#9aa5b1;font-size:12px}.progress-wrap{margin-top:14px;display:none}.progress-wrap.visible{display:block}
+    .progress-head{display:flex;justify-content:space-between;gap:12px;font-size:12px;margin-bottom:7px}.progress-label{color:#c6ced8;font-weight:650}.progress-bytes{color:#7f8b99;font-variant-numeric:tabular-nums}
+    .track{height:6px;border-radius:999px;background:#242b34;overflow:hidden}.fill{height:100%;width:0;background:#73a7ff;transition:width .25s ease}.fill.complete{background:#63d297}.fill.error{background:#ff6b75}
+    .empty{border:1px dashed #2a313a;border-radius:12px;padding:34px 20px;text-align:center;color:#7f8b99}
+    .toast{position:fixed;right:20px;bottom:20px;max-width:min(420px,calc(100vw - 40px));background:#171c23;color:#eef2f6;border:1px solid #303845;border-radius:10px;padding:12px 14px;box-shadow:0 14px 44px rgba(0,0,0,.35);opacity:0;pointer-events:none;transform:translateY(8px);transition:.18s ease;font-size:13px}
+    .toast.visible{opacity:1;transform:translateY(0)}.toast.error{border-color:#63343a}
+    @media(max-width:700px){.shell{padding:24px 14px 48px}.topbar{flex-direction:column}.actions{justify-content:flex-start}.toolbar{align-items:stretch;flex-direction:column-reverse}.search{width:100%}.card{grid-template-columns:1fr}.card>.button{width:100%}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div><div class="eyebrow">Synology · PS5</div><h1>PKG Sender</h1><p class="subtitle">Install packages from the NAS and monitor HTTP transfer progress.</p></div>
+      <div class="actions"><button id="rescanButton" class="button">Rescan library</button><button id="refreshButton" class="button">Refresh</button></div>
+    </header>
+    <div id="statusLine" class="statusline"><span id="statusDot" class="statusdot"></span><span id="statusText">Connecting…</span></div>
+    <div class="toolbar"><div id="packageCount" class="count">0 packages</div><input id="searchInput" class="search" type="search" autocomplete="off" placeholder="Filter packages…"></div>
+    <section id="packageGrid" class="grid" aria-live="polite"></section>
+  </main>
+  <div id="toast" class="toast" role="status"></div>
+  <script>
+    const state={packages:[],transfers:new Map(),installing:new Set(),query:""};
+    const els={grid:document.getElementById("packageGrid"),count:document.getElementById("packageCount"),search:document.getElementById("searchInput"),rescan:document.getElementById("rescanButton"),refresh:document.getElementById("refreshButton"),statusDot:document.getElementById("statusDot"),statusText:document.getElementById("statusText"),toast:document.getElementById("toast")};
+    function formatBytes(bytes){if(!Number.isFinite(bytes)||bytes<0)return"—";const units=["B","KiB","MiB","GiB","TiB"];let value=bytes,unit=0;while(value>=1024&&unit<units.length-1){value/=1024;unit++}const digits=value>=100||unit===0?0:value>=10?1:2;return value.toFixed(digits)+" "+units[unit]}
+    function statusLabel(status){return({requesting:"Contacting PS5",queued:"Queued",downloading:"Transferring",complete:"Transfer complete",error:"Error"})[status]||"Ready"}
+    function setConnection(ok,message){els.statusDot.className="statusdot "+(ok?"ok":"error");els.statusText.textContent=message}
+    let toastTimer;function showToast(message,error=false){clearTimeout(toastTimer);els.toast.textContent=message;els.toast.className="toast visible"+(error?" error":"");toastTimer=setTimeout(()=>els.toast.className="toast",3600)}
+    async function fetchJSON(url,options={}){const response=await fetch(url,{cache:"no-store",...options});let body=null;try{body=await response.json()}catch{}if(!response.ok){throw new Error((body&&(body.error||body.message))||response.status+" "+response.statusText)}return body}
+    function render(){
+      const query=state.query.trim().toLocaleLowerCase();
+      const packages=state.packages.filter(pkg=>!query||(pkg.name+"\n"+pkg.relativePath).toLocaleLowerCase().includes(query));
+      els.count.textContent=state.packages.length+(state.packages.length===1?" package":" packages");els.grid.replaceChildren();
+      if(!packages.length){const empty=document.createElement("div");empty.className="empty";empty.textContent=state.packages.length?"No packages match the filter.":"No PKG files found. Rescan the library after adding files.";els.grid.appendChild(empty);return}
+      for(const pkg of packages){
+        const transfer=state.transfers.get(pkg.id),card=document.createElement("article");card.className="card";
+        const content=document.createElement("div"),name=document.createElement("div");name.className="name";name.textContent=pkg.name;
+        const path=document.createElement("div");path.className="path";path.textContent=pkg.relativePath;
+        const meta=document.createElement("div");meta.className="meta";const size=document.createElement("span");size.textContent=formatBytes(pkg.size);const stateText=document.createElement("span");stateText.textContent=statusLabel(transfer&&transfer.status);meta.append(size,stateText);content.append(name,path,meta);
+        const progress=document.createElement("div");progress.className="progress-wrap"+(transfer?" visible":"");
+        if(transfer){const head=document.createElement("div");head.className="progress-head";const label=document.createElement("span");label.className="progress-label";const percent=Math.max(0,Math.min(100,Number(transfer.percent)||0));label.textContent=statusLabel(transfer.status)+" · "+percent.toFixed(percent===100?0:1)+"%";const bytes=document.createElement("span");bytes.className="progress-bytes";bytes.textContent=formatBytes(transfer.transferred)+" / "+formatBytes(transfer.total);head.append(label,bytes);const track=document.createElement("div");track.className="track";const fill=document.createElement("div");fill.className="fill"+(transfer.status==="complete"?" complete":transfer.status==="error"?" error":"");fill.style.width=percent+"%";track.appendChild(fill);progress.append(head,track);if(transfer.error){const error=document.createElement("div");error.className="path";error.style.marginTop="8px";error.textContent=transfer.error;progress.appendChild(error)}}
+        content.appendChild(progress);
+        const button=document.createElement("button");button.className="button primary";button.textContent=state.installing.has(pkg.id)?"Queuing…":"Install";button.disabled=state.installing.has(pkg.id)||(transfer&&["requesting","queued","downloading"].includes(transfer.status));button.addEventListener("click",()=>installPackage(pkg));card.append(content,button);els.grid.appendChild(card);
+      }
+    }
+    async function refresh({quiet=false}={}){try{const[packages,transfers]=await Promise.all([fetchJSON("/api/packages"),fetchJSON("/api/transfers")]);state.packages=Array.isArray(packages)?packages:[];state.transfers=new Map((Array.isArray(transfers)?transfers:[]).map(t=>[t.id,t]));setConnection(true,"Connected · progress updates every second");render()}catch(error){setConnection(false,"Connection error · "+error.message);if(!quiet)showToast("Refresh failed: "+error.message,true)}}
+    async function installPackage(pkg){if(!window.confirm("Install this PKG on the configured PS5?\n\n"+pkg.name+"\n"+formatBytes(pkg.size)))return;state.installing.add(pkg.id);render();try{await fetchJSON("/api/install/"+encodeURIComponent(pkg.id),{method:"POST"});showToast("Install queued: "+pkg.name);await refresh({quiet:true})}catch(error){showToast("Install failed: "+error.message,true)}finally{state.installing.delete(pkg.id);render()}}
+    async function rescan(){els.rescan.disabled=true;try{const result=await fetchJSON("/api/rescan",{method:"POST"});showToast("Library rescanned · "+result.packages+" PKG file(s)");await refresh({quiet:true})}catch(error){showToast("Rescan failed: "+error.message,true)}finally{els.rescan.disabled=false}}
+    els.search.addEventListener("input",event=>{state.query=event.target.value;render()});els.rescan.addEventListener("click",rescan);els.refresh.addEventListener("click",()=>refresh());
+    refresh();setInterval(()=>refresh({quiet:true}),1000);
+  </script>
+</body>
+</html>

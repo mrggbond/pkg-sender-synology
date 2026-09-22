@@ -164,6 +164,47 @@ func TestPackageRangeAndInstallFlow(t *testing.T) {
 	}
 }
 
+func TestEmbeddedWebUI(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Game.pkg"), []byte("0123456789"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := pkgstore.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Scan(); err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(store, &fakeInstaller{}, "http://192.168.1.20:9898", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(app.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ui/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("UI status=%d, want 200", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+		t.Fatalf("UI Content-Type=%q", got)
+	}
+	for _, want := range []string{"PS5 PKG Sender", "/api/packages", "/api/transfers", "/api/install/"} {
+		if !bytes.Contains(body, []byte(want)) {
+			t.Fatalf("UI does not contain %q", want)
+		}
+	}
+}
+
 func TestLargePackageRangeUses64BitOffsets(t *testing.T) {
 	root := t.TempDir()
 	pkgPath := filepath.Join(root, "Large.pkg")

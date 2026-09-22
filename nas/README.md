@@ -15,6 +15,7 @@ Not included yet: PKG metadata, covers, Game/Patch/DLC families, UDP discovery, 
 ## API
 
 - `GET /health`
+- `GET /ui/`
 - `GET /api/packages`
 - `GET /api/transfers`
 - `POST /api/rescan`
@@ -22,6 +23,17 @@ Not included yet: PKG metadata, covers, Game/Patch/DLC families, UDP discovery, 
 - `GET|HEAD /pkg/{id}`
 
 The package API returns stable SHA-256 IDs derived from relative paths. Absolute NAS paths are never accepted from HTTP requests.
+
+## Web UI
+
+Open `http://NAS_IP:9898/ui/` in a browser. The embedded UI has no third-party runtime dependencies and provides:
+
+- PKG library listing and filtering;
+- manual library rescan;
+- an Install action with confirmation;
+- live in-memory transfer status and byte-accurate percentage polling once per second.
+
+The UI uses the existing same-origin JSON API and does not add a second listening port.
 
 ## Configuration
 

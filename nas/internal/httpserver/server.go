@@ -75,6 +75,10 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("/", s.handleRoot)
+	s.mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/", http.StatusPermanentRedirect)
+	})
+	s.mux.Handle("/ui/", http.StripPrefix("/ui/", newUIHandler()))
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/api/packages", s.handlePackages)
 	s.mux.HandleFunc("/api/transfers", s.handleTransfers)
@@ -97,6 +101,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		"service":  "pkg-sender-nas",
 		"packages": len(s.store.List()),
 		"endpoints": map[string]string{
+			"ui":        "GET /ui/",
 			"packages":  "GET /api/packages",
 			"transfers": "GET /api/transfers",
 			"rescan":    "POST /api/rescan",
