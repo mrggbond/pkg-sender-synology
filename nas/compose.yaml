@@ -1,0 +1,18 @@
+services:
+  pkg-sender-nas:
+    build:
+      context: .
+    image: pkg-sender-nas:local
+    container_name: pkg-sender-nas
+    restart: unless-stopped
+    read_only: true
+    ports:
+      - "9898:9898"
+    volumes:
+      - "${PKG_DIR:-/volume1/PS5/PKG}:/packages:ro"
+    environment:
+      PKGSENDER_PACKAGE_DIR: /packages
+      PKGSENDER_LISTEN: ":9898"
+      PKGSENDER_PUBLIC_BASE_URL: "http://${NAS_IP:?Set NAS_IP}:9898"
+      PKGSENDER_PS5_IP: "${PS5_IP:?Set PS5_IP}"
+      PKGSENDER_PS5_PORT: "12800"
