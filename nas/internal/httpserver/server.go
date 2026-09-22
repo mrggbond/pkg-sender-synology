@@ -26,6 +26,7 @@ type Server struct {
 	installer     Installer
 	publicBaseURL string
 	logger        *log.Logger
+	transfers     *transferTracker
 	mux           *http.ServeMux
 }
 
@@ -61,6 +62,7 @@ func New(store *pkgstore.Store, installer Installer, publicBaseURL string, logge
 		installer:     installer,
 		publicBaseURL: publicBaseURL,
 		logger:        logger,
+		transfers:     newTransferTracker(),
 		mux:           http.NewServeMux(),
 	}
 	s.routes()
@@ -75,6 +77,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/", s.handleRoot)
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/api/packages", s.handlePackages)
+	s.mux.HandleFunc("/api/transfers", s.handleTransfers)
 	s.mux.HandleFunc("/api/rescan", s.handleRescan)
 	s.mux.HandleFunc("/api/install/", s.handleInstall)
 	s.mux.HandleFunc("/pkg/", s.handlePackage)
@@ -94,11 +97,12 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		"service":  "pkg-sender-nas",
 		"packages": len(s.store.List()),
 		"endpoints": map[string]string{
-			"packages": "GET /api/packages",
-			"rescan":   "POST /api/rescan",
-			"install":  "POST /api/install/{id}",
-			"package":  "GET|HEAD /pkg/{id}",
-			"health":   "GET /health",
+			"packages":  "GET /api/packages",
+			"transfers": "GET /api/transfers",
+			"rescan":    "POST /api/rescan",
+			"install":   "POST /api/install/{id}",
+			"package":   "GET|HEAD /pkg/{id}",
+			"health":    "GET /health",
 		},
 	})
 }
@@ -120,6 +124,14 @@ func (s *Server) handlePackages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.store.List())
+}
+
+func (s *Server) handleTransfers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		methodNotAllowed(w, "GET, HEAD")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.transfers.List())
 }
 
 func (s *Server) handleRescan(w http.ResponseWriter, r *http.Request) {
@@ -177,6 +189,13 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request) {
 	if status == 0 {
 		status = http.StatusOK
 	}
+	progress, tracked := s.transfers.Record(
+		pkg.ID,
+		r.Method,
+		status,
+		tw.Header().Get("Content-Range"),
+		tw.bytes,
+	)
 	s.logger.Printf(
 		"pkg transfer: method=%s client=%s id=%s file=%q range=%q status=%d bytes=%d",
 		r.Method,
@@ -187,6 +206,17 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request) {
 		status,
 		tw.bytes,
 	)
+	if tracked {
+		s.logger.Printf(
+			"transfer progress: id=%s status=%s transferred=%d total=%d percent=%.2f ranges=%d",
+			progress.ID,
+			progress.Status,
+			progress.Transferred,
+			progress.Total,
+			progress.Percent,
+			progress.RangeCount,
+		)
+	}
 }
 
 func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
@@ -208,8 +238,10 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 
 	packageURL := s.publicBaseURL + "/pkg/" + url.PathEscape(id)
 
+	s.transfers.Start(pkg)
 	reply, err := s.installer.Install(r.Context(), packageURL, pkg.Name)
 	if err != nil {
+		s.transfers.MarkError(pkg.ID, err)
 		s.logger.Printf("install request failed for %s: %v", pkg.RelativePath, err)
 		writeJSON(w, http.StatusBadGateway, map[string]any{
 			"status":   "error",
@@ -219,6 +251,7 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.transfers.MarkQueued(pkg.ID)
 	s.logger.Printf("install queued: %s -> %s", pkg.RelativePath, packageURL)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":     "queued",

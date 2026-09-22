@@ -16,6 +16,7 @@ Not included yet: PKG metadata, covers, Game/Patch/DLC families, UDP discovery, 
 
 - `GET /health`
 - `GET /api/packages`
+- `GET /api/transfers`
 - `POST /api/rescan`
 - `POST /api/install/{id}`
 - `GET|HEAD /pkg/{id}`
@@ -90,6 +91,35 @@ pkg transfer: method=GET client=192.168.32.100 id=... file="Game.pkg" range="byt
 ```
 
 `HEAD` requests report `bytes=0`. A PS5 install can issue multiple range requests, so these entries are per HTTP request rather than a cumulative install-progress value.
+
+With Synology Docker bridge port mapping, the container may see the bridge gateway (for example `172.19.0.1`) instead of the original PS5 LAN address. Transfer progress therefore does not rely on the logged client IP.
+
+## Transfer progress
+
+`POST /api/install/{id}` creates or resets an in-memory transfer session for that package. Successful `GET /pkg/{id}` responses are merged as byte intervals, so duplicate, overlapping, retried, or concurrent Range requests do not inflate progress.
+
+`GET /api/transfers` returns the current sessions, for example:
+
+```json
+[
+  {
+    "id": "...",
+    "name": "Game.pkg",
+    "relativePath": "Game.pkg",
+    "status": "downloading",
+    "transferred": 34800000000,
+    "total": 83129328266,
+    "percent": 41.8613,
+    "rangeCount": 7,
+    "startedAt": "2026-09-22T17:20:00Z",
+    "updatedAt": "2026-09-22T17:22:10Z"
+  }
+]
+```
+
+Statuses are `requesting`, `queued`, `downloading`, `complete`, or `error`. `complete` means the HTTP byte coverage reached the PKG size; it does not independently prove that the PS5 finished installing or launching the title.
+
+Transfer sessions are intentionally memory-only in this stage and reset when the container restarts.
 
 ## Local development
 

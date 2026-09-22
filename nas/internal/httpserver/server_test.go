@@ -3,6 +3,7 @@ package httpserver
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -128,6 +129,38 @@ func TestPackageRangeAndInstallFlow(t *testing.T) {
 	}
 	if installer.name != "Game.pkg" {
 		t.Fatalf("installer name=%q", installer.name)
+	}
+
+	progressReq, err := http.NewRequest(http.MethodGet, srv.URL+"/pkg/"+pkgs[0].ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	progressReq.Header.Set("Range", "bytes=0-4")
+	progressResp, err := http.DefaultClient.Do(progressReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, progressResp.Body)
+	progressResp.Body.Close()
+	if progressResp.StatusCode != http.StatusPartialContent {
+		t.Fatalf("progress range status=%d", progressResp.StatusCode)
+	}
+
+	transfersResp, err := http.Get(srv.URL + "/api/transfers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var transfers []TransferSnapshot
+	if err := json.NewDecoder(transfersResp.Body).Decode(&transfers); err != nil {
+		transfersResp.Body.Close()
+		t.Fatal(err)
+	}
+	transfersResp.Body.Close()
+	if len(transfers) != 1 {
+		t.Fatalf("transfers=%d, want 1", len(transfers))
+	}
+	if transfers[0].ID != pkgs[0].ID || transfers[0].Transferred != 5 || transfers[0].Total != 10 || transfers[0].Status != "downloading" {
+		t.Fatalf("transfer snapshot=%+v", transfers[0])
 	}
 }
 
