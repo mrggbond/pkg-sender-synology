@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Loopayeh/pkg-sender/nas/internal/pkgstore"
@@ -181,6 +183,56 @@ func TestLargePackageRangeUses64BitOffsets(t *testing.T) {
 	}
 	if len(body) != 4 {
 		t.Fatalf("body len=%d, want 4", len(body))
+	}
+}
+
+func TestPackageTransferLogCapturesRangeStatusAndBytes(t *testing.T) {
+	root := t.TempDir()
+	pkgPath := filepath.Join(root, "Game.pkg")
+	if err := os.WriteFile(pkgPath, []byte("0123456789"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := pkgstore.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Scan(); err != nil {
+		t.Fatal(err)
+	}
+	pkg := store.List()[0]
+
+	var logs bytes.Buffer
+	app, err := New(store, &fakeInstaller{}, "http://192.168.1.20:9898", log.New(&logs, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/pkg/"+pkg.ID, nil)
+	req.Header.Set("Range", "bytes=2-5")
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("status=%d, want 206", rec.Code)
+	}
+	if got := rec.Body.String(); got != "2345" {
+		t.Fatalf("body=%q, want 2345", got)
+	}
+
+	gotLog := logs.String()
+	for _, want := range []string{
+		"pkg transfer:",
+		"method=GET",
+		"client=192.0.2.1",
+		"file=\"Game.pkg\"",
+		"range=\"bytes=2-5\"",
+		"status=206",
+		"bytes=4",
+	} {
+		if !strings.Contains(gotLog, want) {
+			t.Fatalf("log %q does not contain %q", gotLog, want)
+		}
 	}
 }
 

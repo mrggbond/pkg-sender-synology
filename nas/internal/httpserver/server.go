@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -168,7 +170,23 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeContent(w, r, pkg.Name, modTime, f)
+	tw := &transferResponseWriter{ResponseWriter: w}
+	http.ServeContent(tw, r, pkg.Name, modTime, f)
+
+	status := tw.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	s.logger.Printf(
+		"pkg transfer: method=%s client=%s id=%s file=%q range=%q status=%d bytes=%d",
+		r.Method,
+		clientIP(r.RemoteAddr),
+		pkg.ID,
+		pkg.RelativePath,
+		r.Header.Get("Range"),
+		status,
+		tw.bytes,
+	)
 }
 
 func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
@@ -221,6 +239,55 @@ func routeID(requestPath, prefix string) (string, bool) {
 		return "", false
 	}
 	return id, true
+}
+
+type transferResponseWriter struct {
+	http.ResponseWriter
+	status int
+	bytes  int64
+}
+
+func (w *transferResponseWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *transferResponseWriter) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	n, err := w.ResponseWriter.Write(p)
+	w.bytes += int64(n)
+	return n, err
+}
+
+func (w *transferResponseWriter) ReadFrom(r io.Reader) (int64, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	if readerFrom, ok := w.ResponseWriter.(io.ReaderFrom); ok {
+		n, err := readerFrom.ReadFrom(r)
+		w.bytes += n
+		return n, err
+	}
+	n, err := io.Copy(w.ResponseWriter, r)
+	w.bytes += n
+	return n, err
+}
+
+func (w *transferResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func clientIP(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err == nil {
+		return host
+	}
+	return remoteAddr
 }
 
 func methodNotAllowed(w http.ResponseWriter, allow string) {

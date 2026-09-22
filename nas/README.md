@@ -79,7 +79,17 @@ Queue installation on the PS5:
 curl -X POST http://NAS_IP:9898/api/install/ID
 ```
 
-A successful NAS-side response means the receiver accepted the install request. Final MVP acceptance still requires a real PS5 to request `/pkg/{id}` from the NAS and complete installation.
+A successful NAS-side response means the receiver accepted the install request. Real-hardware MVP acceptance has passed: the PS5 accepted the request, pulled the PKG from the Synology NAS, completed installation, and the installed game launched successfully.
+
+## Transfer logging
+
+Each completed `/pkg/{id}` request emits one transfer log line with the client IP, requested byte range, HTTP status, and actual response-body bytes sent:
+
+```text
+pkg transfer: method=GET client=192.168.32.100 id=... file="Game.pkg" range="bytes=0-1048575" status=206 bytes=1048576
+```
+
+`HEAD` requests report `bytes=0`. A PS5 install can issue multiple range requests, so these entries are per HTTP request rather than a cumulative install-progress value.
 
 ## Local development
 
