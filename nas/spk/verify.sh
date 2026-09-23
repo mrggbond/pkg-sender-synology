@@ -33,7 +33,10 @@ grep -q '^package="PKGSenderNAS"$' "${TOP}/INFO"
 grep -q '^os_min_ver="7\.0-40000"$' "${TOP}/INFO"
 grep -q '^startable="yes"$' "${TOP}/INFO"
 grep -q '^ctlscript="start-stop-status"$' "${TOP}/INFO"
-grep -q '^adminport="9898"$' "${TOP}/INFO"
+if grep -q '^adminport=' "${TOP}/INFO"; then
+    echo "SPK must not declare adminport; DSM already owns the migration port through WebStation." >&2
+    exit 1
+fi
 grep -q '^package_icon="' "${TOP}/INFO"
 grep -q '^package_icon_256="' "${TOP}/INFO"
 grep -Eq '^extractsize="[0-9]+"$' "${TOP}/INFO"
@@ -58,7 +61,7 @@ EXPECTED_MD5="$(awk -F'"' '/^checksum="/ {print $2; exit}' "${TOP}/INFO")"
     echo "package.tgz checksum mismatch." >&2
     exit 1
 }
-for required in     bin/pkg-sender-nas     share/config.env.example     var/PKGSenderNAS.sc
+for required in     bin/pkg-sender-nas     share/config.env.example
 do
     [ -f "${PAYLOAD}/${required}" ] || {
         echo "Missing payload entry: ${required}" >&2
@@ -71,7 +74,10 @@ done
     exit 1
 }
 
-grep -q 'dst\.ports="9898/tcp"' "${PAYLOAD}/var/PKGSenderNAS.sc"
+if grep -q '"port-config"' "${TOP}/conf/resource"; then
+    echo "SPK must not re-register port 9898 through conf/resource." >&2
+    exit 1
+fi
 grep -q 'CHANGE_ME_NAS_IP' "${PAYLOAD}/share/config.env.example"
 grep -q 'CHANGE_ME_PS5_IP' "${PAYLOAD}/share/config.env.example"
 

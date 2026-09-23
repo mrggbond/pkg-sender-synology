@@ -20,9 +20,9 @@ GO_BIN=/path/to/go ./build.sh
 
 Defaults:
 
-- version: `0.1.0-0001`
+- version: `0.1.0-0002`
 - architecture: `x86_64`
-- output: `dist/PKGSenderNAS-0.1.0-0001-x86_64.spk`
+- output: `dist/PKGSenderNAS-0.1.0-0002-x86_64.spk`
 
 ARM64 package:
 
@@ -56,6 +56,8 @@ If the config is missing or still contains `CHANGE_ME`, the lifecycle script rep
 
 The native process runs as the package identity rather than root. In DSM Shared Folder permissions, grant the system-internal user associated with **PS5 PKG Sender / PKGSenderNAS** read/traverse access to the directory configured by `PKGSENDER_PACKAGE_DIR`. Write permission is not required.
 
+On DSM installations where the shared folder uses Synology ACLs, Unix mode bits alone may not be sufficient. Grant the package identity read/traverse access to the library path and its existing descendants. The DS1517+ migration target required an explicit `PKGSenderNAS` read/traverse ACE because the shared-folder ACL otherwise denied the package user even though the directory mode was permissive.
+
 ## Runtime files
 
 Persistent package data:
@@ -72,18 +74,33 @@ Immutable installed payload:
 ```text
 /var/packages/PKGSenderNAS/target/
 ├── bin/pkg-sender-nas
-├── share/config.env.example
-└── var/PKGSenderNAS.sc
+└── share/config.env.example
 ```
 
-Port `9898/tcp` is declared to DSM through `conf/resource`.
+The package intentionally does not declare `adminport` or a DSM `port-config` for 9898. On the migration target, WebStation already has the existing Docker-project service registered against `127.0.0.1:9898`; declaring the same port again makes DSM reject the SPK with error 283. The native daemon still binds the configured `PKGSENDER_LISTEN` address (default `:9898`) once the Docker service is stopped.
 
 ## Safe DSM validation
 
-`verify.sh` is the primary pre-install gate. It checks the SPK layout, lifecycle script syntax, required DSM metadata, embedded icon fields, payload contents, executable mode, port declaration, and the MD5 recorded for `package.tgz`.
+`verify.sh` is the primary pre-install gate. It checks the SPK layout, lifecycle script syntax, required DSM metadata, embedded icon fields, payload contents, executable mode, absence of duplicate DSM port ownership, and the MD5 recorded for `package.tgz`.
 
 For hardware validation without installation, copy the SPK to the NAS, unpack it into a temporary directory, and execute the extracted binary with an empty environment. On the DS1517+ test target the x86_64 binary executes and fails closed on the missing `PKGSENDER_PS5_IP`, which proves the packaged Linux binary is runnable without binding a port.
 
 DSM 7.2.2 also exposes `synopkg query <spk>`, but it is not used as a blocking validation gate here. On the test NAS it returns the same generic failure for a temporary SPK reconstructed from an already-installed custom package, so that result is not specific enough to distinguish a malformed hand-built SPK.
+
+
+## Real-hardware migration acceptance
+
+DSM 7.2.2 on DS1517+ (`x86_64`, `avoton`) has passed the native-package migration gate with `0.1.0-0002`:
+
+- SPK installation completed successfully after removing duplicate DSM ownership of port 9898;
+- the daemon runs as `PKGSenderNAS:PKGSenderNAS`, not root;
+- the package identity can read the existing PS5 PKG library through Synology ACLs;
+- `synopkg restart PKGSenderNAS` performs a clean stop/start and rescans the library;
+- `/health` reports all 5 PKGs;
+- family metadata and local covers are available;
+- HTTP Range remains `206 Partial Content`;
+- the former Docker container remains stopped as a rollback path.
+
+No real PS5 install was triggered during this migration gate.
 
 Do **not** install or start the native SPK while the stable Docker service is still bound to port 9898. Installation/start testing is a separate migration gate after explicitly stopping the Docker instance.

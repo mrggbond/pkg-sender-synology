@@ -95,6 +95,8 @@ A native DSM 7 SPK build is available under `spk/`. It packages the same Go serv
 
 The Docker and native package variants both use port 9898 by default. Do not start both at the same time.
 
+Real-hardware native-package migration has passed on DSM 7.2.2 / DS1517+ with SPK `0.1.0-0002`: the service runs under the DSM package identity, survives a package restart, scans the existing 5-PKG library, serves covers, and preserves byte-range behavior. The previous Docker container is retained in stopped state as a rollback path.
+
 ## Smoke test
 
 List packages:
