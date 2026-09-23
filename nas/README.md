@@ -89,6 +89,12 @@ Then create the project from `compose.yaml`.
 
 The package directory is mounted read-only. The container does not need privileged mode. MVP uses ordinary TCP port mapping; host networking is not required until UDP auto-discovery is added.
 
+## Native DSM package
+
+A native DSM 7 SPK build is available under `spk/`. It packages the same Go server as a static Linux binary, runs under DSM's package identity, keeps configuration in the package app-data directory, and does not require Container Manager. See `spk/README.md` for build and migration details.
+
+The Docker and native package variants both use port 9898 by default. Do not start both at the same time.
+
 ## Smoke test
 
 List packages:

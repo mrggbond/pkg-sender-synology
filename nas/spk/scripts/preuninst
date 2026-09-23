@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+PACKAGE="PKGSenderNAS"
+SSS="/var/packages/${PACKAGE}/scripts/start-stop-status"
+
+if [ -x "${SSS}" ]; then
+    "${SSS}" stop || true
+fi
+
+exit 0

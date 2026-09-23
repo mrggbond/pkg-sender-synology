@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+PACKAGE="PKGSenderNAS"
+PACKAGE_ROOT="/var/packages/${PACKAGE}"
+TARGET_DIR="${SYNOPKG_PKGDEST:-${PACKAGE_ROOT}/target}"
+VAR_DIR="${PACKAGE_ROOT}/var"
+CONFIG_FILE="${VAR_DIR}/config.env"
+EXAMPLE="${TARGET_DIR}/share/config.env.example"
+
+[ -d "${VAR_DIR}" ] || mkdir -p "${VAR_DIR}"
+if [ ! -f "${CONFIG_FILE}" ]; then
+    cp "${EXAMPLE}" "${CONFIG_FILE}"
+    chmod 600 "${CONFIG_FILE}"
+fi
+
+exit 0

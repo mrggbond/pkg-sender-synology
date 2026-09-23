@@ -1,0 +1,163 @@
+#!/bin/sh
+set -u
+umask 077
+
+PACKAGE="PKGSenderNAS"
+DISPLAY_NAME="PS5 PKG Sender"
+PACKAGE_ROOT="/var/packages/${PACKAGE}"
+TARGET_DIR="${SYNOPKG_PKGDEST:-${PACKAGE_ROOT}/target}"
+VAR_DIR="${PACKAGE_ROOT}/var"
+BIN="${TARGET_DIR}/bin/pkg-sender-nas"
+CONFIG_FILE="${VAR_DIR}/config.env"
+PID_FILE="${VAR_DIR}/pkg-sender-nas.pid"
+LOG_FILE="${VAR_DIR}/pkg-sender-nas.log"
+
+ensure_var_dir() {
+    [ -d "${VAR_DIR}" ] || mkdir -p "${VAR_DIR}"
+}
+
+pid_is_running() {
+    [ -f "${PID_FILE}" ] || return 1
+    PID="$(cat "${PID_FILE}" 2>/dev/null || true)"
+    case "${PID}" in
+        ""|*[!0-9]*) return 1 ;;
+    esac
+    kill -0 "${PID}" 2>/dev/null || return 1
+
+    EXE="$(readlink -f "/proc/${PID}/exe" 2>/dev/null || true)"
+    EXPECTED_EXE="$(readlink -f "${BIN}" 2>/dev/null || true)"
+    [ -n "${EXE}" ] && [ -n "${EXPECTED_EXE}" ] && [ "${EXE}" = "${EXPECTED_EXE}" ]
+}
+
+remove_stale_pid() {
+    if [ -f "${PID_FILE}" ] && ! pid_is_running; then
+        rm -f "${PID_FILE}"
+    fi
+}
+
+load_config() {
+    [ -f "${CONFIG_FILE}" ] || return 1
+    set -a
+    # config.env is package-admin controlled shell-style KEY="value" data.
+    . "${CONFIG_FILE}"
+    set +a
+
+    : "${PKGSENDER_PACKAGE_DIR:=}"
+    : "${PKGSENDER_LISTEN:=:9898}"
+    : "${PKGSENDER_PUBLIC_BASE_URL:=}"
+    : "${PKGSENDER_PS5_IP:=}"
+    : "${PKGSENDER_PS5_PORT:=12800}"
+
+    case "${PKGSENDER_PUBLIC_BASE_URL}" in
+        ""|*CHANGE_ME*) return 1 ;;
+    esac
+    case "${PKGSENDER_PS5_IP}" in
+        ""|*CHANGE_ME*) return 1 ;;
+    esac
+    [ -n "${PKGSENDER_PACKAGE_DIR}" ] || return 1
+    return 0
+}
+
+start_daemon() {
+    ensure_var_dir
+    remove_stale_pid
+
+    if pid_is_running; then
+        echo "${DISPLAY_NAME} is already running (PID: $(cat "${PID_FILE}"))."
+        return 0
+    fi
+
+    if [ ! -x "${BIN}" ]; then
+        echo "${DISPLAY_NAME}: binary not found or not executable: ${BIN}" >&2
+        return 1
+    fi
+
+    if ! load_config; then
+        echo "${DISPLAY_NAME} is installed but not configured."
+        echo "Edit ${CONFIG_FILE}, then start the package again."
+        return 0
+    fi
+
+    if [ ! -d "${PKGSENDER_PACKAGE_DIR}" ]; then
+        echo "${DISPLAY_NAME}: package directory does not exist: ${PKGSENDER_PACKAGE_DIR}" >&2
+        return 1
+    fi
+    if [ ! -r "${PKGSENDER_PACKAGE_DIR}" ] || [ ! -x "${PKGSENDER_PACKAGE_DIR}" ]; then
+        echo "${DISPLAY_NAME}: package user cannot read/traverse: ${PKGSENDER_PACKAGE_DIR}" >&2
+        return 1
+    fi
+
+    echo "Starting ${DISPLAY_NAME}..."
+    nohup "${BIN}" >>"${LOG_FILE}" 2>&1 &
+    PID=$!
+    printf '%s\n' "${PID}" >"${PID_FILE}"
+
+    sleep 1
+    if pid_is_running; then
+        echo "${DISPLAY_NAME} started (PID: ${PID})."
+        return 0
+    fi
+
+    rm -f "${PID_FILE}"
+    echo "${DISPLAY_NAME} failed to start. Check ${LOG_FILE}." >&2
+    return 1
+}
+
+stop_daemon() {
+    remove_stale_pid
+    if ! pid_is_running; then
+        echo "${DISPLAY_NAME} is not running."
+        return 0
+    fi
+
+    PID="$(cat "${PID_FILE}")"
+    echo "Stopping ${DISPLAY_NAME} (PID: ${PID})..."
+    kill -TERM "${PID}" 2>/dev/null || true
+
+    COUNT=15
+    while [ "${COUNT}" -gt 0 ]; do
+        if ! pid_is_running; then
+            rm -f "${PID_FILE}"
+            echo "${DISPLAY_NAME} stopped."
+            return 0
+        fi
+        sleep 1
+        COUNT=$((COUNT - 1))
+    done
+
+    echo "Force stopping ${DISPLAY_NAME}..."
+    if pid_is_running; then
+        kill -KILL "${PID}" 2>/dev/null || true
+    fi
+    rm -f "${PID_FILE}"
+    return 0
+}
+
+status_daemon() {
+    remove_stale_pid
+    if pid_is_running; then
+        echo "${DISPLAY_NAME} is running (PID: $(cat "${PID_FILE}"))."
+        return 0
+    fi
+    echo "${DISPLAY_NAME} is stopped."
+    return 3
+}
+
+case "${1:-}" in
+    start)
+        start_daemon
+        ;;
+    stop|killall)
+        stop_daemon
+        ;;
+    status)
+        status_daemon
+        ;;
+    log)
+        echo "${LOG_FILE}"
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|status|killall|log}" >&2
+        exit 1
+        ;;
+esac
