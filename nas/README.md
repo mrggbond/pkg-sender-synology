@@ -10,7 +10,7 @@ MVP scope:
 4. call the PS5 receiver at `POST http://<ps5>:12800/api/install`;
 5. let the PS5 pull the PKG directly from the NAS.
 
-Not included yet: PKG metadata, covers, Game/Patch/DLC families, UDP discovery, queue UI, image/folder copy, PS4/GoldHEN support.
+Not included yet: covers, Game/Patch/DLC family grouping, UDP discovery, persistent queue/history, image/folder copy, PS4/GoldHEN support.
 
 ## API
 
@@ -23,6 +23,14 @@ Not included yet: PKG metadata, covers, Game/Patch/DLC families, UDP discovery, 
 - `GET|HEAD /pkg/{id}`
 
 The package API returns stable SHA-256 IDs derived from relative paths. Absolute NAS paths are never accepted from HTTP requests.
+
+## PKG metadata
+
+Scanning performs bounded random-access reads of PS5 FIH/CNT metadata instead of reading the full PKG. When available, `GET /api/packages` includes `title`, `titleId`, `contentId`, `version`, `masterVersion`, `targetVersion`, `applicationCategoryType`, `packageType`, and `packageTypeSource`.
+
+Metadata parsing is best-effort. A malformed, encrypted, or unsupported metadata layout leaves `metadataParsed=false` but does not remove the file from the library or block installation.
+
+Package type values are `game`, `patch`, `dlc`, `app`, or `unknown`. Patch classification uses structural/target-version signals. DLC classification may currently use the upstream-compatible title/content-id/filename heuristic and is explicitly marked with `packageTypeSource=heuristic`.
 
 ## Web UI
 

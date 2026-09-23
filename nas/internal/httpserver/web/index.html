@@ -21,7 +21,7 @@
     .search{width:min(360px,60vw);border:1px solid #252b33;background:#11151a;color:#f2f4f7;border-radius:9px;padding:10px 12px;outline:none}.search:focus{border-color:#596676}
     .grid{display:grid;gap:12px}.card{border:1px solid #222933;background:#101419;border-radius:12px;padding:17px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:center}
     .name{font-size:15px;font-weight:720;line-height:1.35;overflow-wrap:anywhere;margin-bottom:5px}.path{color:#7f8b99;font-size:12px;line-height:1.45;overflow-wrap:anywhere;margin-bottom:11px}
-    .meta{display:flex;gap:12px;flex-wrap:wrap;color:#9aa5b1;font-size:12px}.progress-wrap{margin-top:14px;display:none}.progress-wrap.visible{display:block}
+    .meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;color:#9aa5b1;font-size:12px}.chip{border:1px solid #303844;background:#171c22;border-radius:999px;padding:3px 8px;color:#c4ccd6}.muted{color:#697481}.progress-wrap{margin-top:14px;display:none}.progress-wrap.visible{display:block}
     .progress-head{display:flex;justify-content:space-between;gap:12px;font-size:12px;margin-bottom:7px}.progress-label{color:#c6ced8;font-weight:650}.progress-bytes{color:#7f8b99;font-variant-numeric:tabular-nums}
     .track{height:6px;border-radius:999px;background:#242b34;overflow:hidden}.fill{height:100%;width:0;background:#73a7ff;transition:width .25s ease}.fill.complete{background:#63d297}.fill.error{background:#ff6b75}
     .empty{border:1px dashed #2a313a;border-radius:12px;padding:34px 20px;text-align:center;color:#7f8b99}
@@ -46,19 +46,28 @@
     const els={grid:document.getElementById("packageGrid"),count:document.getElementById("packageCount"),search:document.getElementById("searchInput"),rescan:document.getElementById("rescanButton"),refresh:document.getElementById("refreshButton"),statusDot:document.getElementById("statusDot"),statusText:document.getElementById("statusText"),toast:document.getElementById("toast")};
     function formatBytes(bytes){if(!Number.isFinite(bytes)||bytes<0)return"—";const units=["B","KiB","MiB","GiB","TiB"];let value=bytes,unit=0;while(value>=1024&&unit<units.length-1){value/=1024;unit++}const digits=value>=100||unit===0?0:value>=10?1:2;return value.toFixed(digits)+" "+units[unit]}
     function statusLabel(status){return({requesting:"Contacting PS5",queued:"Queued",downloading:"Transferring",complete:"Transfer complete",error:"Error"})[status]||"Ready"}
+    function packageTypeLabel(pkg){const labels={game:"Game",patch:"Patch",dlc:"DLC",app:"App",unknown:"Unknown"};const label=labels[pkg.packageType]||"Unknown";return pkg.packageTypeSource==="heuristic"?"Likely "+label:label}
     function setConnection(ok,message){els.statusDot.className="statusdot "+(ok?"ok":"error");els.statusText.textContent=message}
     let toastTimer;function showToast(message,error=false){clearTimeout(toastTimer);els.toast.textContent=message;els.toast.className="toast visible"+(error?" error":"");toastTimer=setTimeout(()=>els.toast.className="toast",3600)}
     async function fetchJSON(url,options={}){const response=await fetch(url,{cache:"no-store",...options});let body=null;try{body=await response.json()}catch{}if(!response.ok){throw new Error((body&&(body.error||body.message))||response.status+" "+response.statusText)}return body}
     function render(){
       const query=state.query.trim().toLocaleLowerCase();
-      const packages=state.packages.filter(pkg=>!query||(pkg.name+"\n"+pkg.relativePath).toLocaleLowerCase().includes(query));
+      const packages=state.packages.filter(pkg=>!query||[pkg.title,pkg.name,pkg.relativePath,pkg.titleId,pkg.contentId,pkg.version,pkg.packageType].filter(Boolean).join("\n").toLocaleLowerCase().includes(query));
       els.count.textContent=state.packages.length+(state.packages.length===1?" package":" packages");els.grid.replaceChildren();
       if(!packages.length){const empty=document.createElement("div");empty.className="empty";empty.textContent=state.packages.length?"No packages match the filter.":"No PKG files found. Rescan the library after adding files.";els.grid.appendChild(empty);return}
       for(const pkg of packages){
         const transfer=state.transfers.get(pkg.id),card=document.createElement("article");card.className="card";
-        const content=document.createElement("div"),name=document.createElement("div");name.className="name";name.textContent=pkg.name;
-        const path=document.createElement("div");path.className="path";path.textContent=pkg.relativePath;
-        const meta=document.createElement("div");meta.className="meta";const size=document.createElement("span");size.textContent=formatBytes(pkg.size);const stateText=document.createElement("span");stateText.textContent=statusLabel(transfer&&transfer.status);meta.append(size,stateText);content.append(name,path,meta);
+        const content=document.createElement("div"),name=document.createElement("div");name.className="name";name.textContent=pkg.title||pkg.name;
+        const path=document.createElement("div");path.className="path";path.textContent=pkg.title?(pkg.name+" · "+pkg.relativePath):pkg.relativePath;
+        const meta=document.createElement("div");meta.className="meta";
+        const type=document.createElement("span");type.className="chip";type.textContent=packageTypeLabel(pkg);type.title="Classification source: "+(pkg.packageTypeSource||"none");
+        const size=document.createElement("span");size.textContent=formatBytes(pkg.size);
+        meta.append(type,size);
+        if(pkg.titleId){const value=document.createElement("span");value.textContent=pkg.titleId;meta.appendChild(value)}
+        if(pkg.version){const value=document.createElement("span");value.textContent="v"+pkg.version;meta.appendChild(value)}
+        if(pkg.contentId){const value=document.createElement("span");value.className="muted";value.textContent=pkg.contentId;meta.appendChild(value)}
+        if(!pkg.metadataParsed){const value=document.createElement("span");value.className="muted";value.textContent="Metadata unavailable";meta.appendChild(value)}
+        const stateText=document.createElement("span");stateText.textContent=statusLabel(transfer&&transfer.status);meta.appendChild(stateText);content.append(name,path,meta);
         const progress=document.createElement("div");progress.className="progress-wrap"+(transfer?" visible":"");
         if(transfer){const head=document.createElement("div");head.className="progress-head";const label=document.createElement("span");label.className="progress-label";const percent=Math.max(0,Math.min(100,Number(transfer.percent)||0));label.textContent=statusLabel(transfer.status)+" · "+percent.toFixed(percent===100?0:1)+"%";const bytes=document.createElement("span");bytes.className="progress-bytes";bytes.textContent=formatBytes(transfer.transferred)+" / "+formatBytes(transfer.total);head.append(label,bytes);const track=document.createElement("div");track.className="track";const fill=document.createElement("div");fill.className="fill"+(transfer.status==="complete"?" complete":transfer.status==="error"?" error":"");fill.style.width=percent+"%";track.appendChild(fill);progress.append(head,track);if(transfer.error){const error=document.createElement("div");error.className="path";error.style.marginTop="8px";error.textContent=transfer.error;progress.appendChild(error)}}
         content.appendChild(progress);
@@ -66,7 +75,7 @@
       }
     }
     async function refresh({quiet=false}={}){try{const[packages,transfers]=await Promise.all([fetchJSON("/api/packages"),fetchJSON("/api/transfers")]);state.packages=Array.isArray(packages)?packages:[];state.transfers=new Map((Array.isArray(transfers)?transfers:[]).map(t=>[t.id,t]));setConnection(true,"Connected · progress updates every second");render()}catch(error){setConnection(false,"Connection error · "+error.message);if(!quiet)showToast("Refresh failed: "+error.message,true)}}
-    async function installPackage(pkg){if(!window.confirm("Install this PKG on the configured PS5?\n\n"+pkg.name+"\n"+formatBytes(pkg.size)))return;state.installing.add(pkg.id);render();try{await fetchJSON("/api/install/"+encodeURIComponent(pkg.id),{method:"POST"});showToast("Install queued: "+pkg.name);await refresh({quiet:true})}catch(error){showToast("Install failed: "+error.message,true)}finally{state.installing.delete(pkg.id);render()}}
+    async function installPackage(pkg){const display=pkg.title&&pkg.title!==pkg.name?pkg.title+"\n"+pkg.name:pkg.name;if(!window.confirm("Install this PKG on the configured PS5?\n\n"+display+"\n"+formatBytes(pkg.size)))return;state.installing.add(pkg.id);render();try{await fetchJSON("/api/install/"+encodeURIComponent(pkg.id),{method:"POST"});showToast("Install queued: "+(pkg.title||pkg.name));await refresh({quiet:true})}catch(error){showToast("Install failed: "+error.message,true)}finally{state.installing.delete(pkg.id);render()}}
     async function rescan(){els.rescan.disabled=true;try{const result=await fetchJSON("/api/rescan",{method:"POST"});showToast("Library rescanned · "+result.packages+" PKG file(s)");await refresh({quiet:true})}catch(error){showToast("Rescan failed: "+error.message,true)}finally{els.rescan.disabled=false}}
     els.search.addEventListener("input",event=>{state.query=event.target.value;render()});els.rescan.addEventListener("click",rescan);els.refresh.addEventListener("click",()=>refresh());
     refresh();setInterval(()=>refresh({quiet:true}),1000);

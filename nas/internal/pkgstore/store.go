@@ -11,13 +11,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Loopayeh/pkg-sender/nas/internal/pkgmeta"
 )
 
 type Package struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	RelativePath string `json:"relativePath"`
-	Size         int64  `json:"size"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	RelativePath   string `json:"relativePath"`
+	Size           int64  `json:"size"`
+	MetadataParsed bool   `json:"metadataParsed"`
+	pkgmeta.Metadata
 }
 
 type entry struct {
@@ -97,11 +101,14 @@ func (s *Store) Scan() (int, error) {
 		}
 		rel = filepath.ToSlash(rel)
 		id := packageID(rel)
+		meta, metaErr := pkgmeta.ReadFile(path)
 		pkg := Package{
-			ID:           id,
-			Name:         filepath.Base(path),
-			RelativePath: rel,
-			Size:         info.Size(),
+			ID:             id,
+			Name:           filepath.Base(path),
+			RelativePath:   rel,
+			Size:           info.Size(),
+			MetadataParsed: metaErr == nil,
+			Metadata:       meta,
 		}
 		next[id] = entry{
 			Package: pkg,

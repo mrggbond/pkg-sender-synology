@@ -198,7 +198,7 @@ func TestEmbeddedWebUI(t *testing.T) {
 	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
 		t.Fatalf("UI Content-Type=%q", got)
 	}
-	for _, want := range []string{"PS5 PKG Sender", "/api/packages", "/api/transfers", "/api/install/"} {
+	for _, want := range []string{"PS5 PKG Sender", "/api/packages", "/api/transfers", "/api/install/", "pkg.contentId", "packageTypeLabel"} {
 		if !bytes.Contains(body, []byte(want)) {
 			t.Fatalf("UI does not contain %q", want)
 		}
