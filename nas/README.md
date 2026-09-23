@@ -33,17 +33,59 @@ The package API returns stable SHA-256 IDs derived from relative paths. Absolute
 
 ## PKG metadata
 
-Scanning performs bounded random-access reads of PS5 FIH/CNT metadata instead of reading the full PKG. When available, `GET /api/packages` includes `title`, `titleId`, `contentId`, `version`, `masterVersion`, `targetVersion`, `applicationCategoryType`, `packageType`, and `packageTypeSource`.
+Scanning performs bounded random-access reads of PS5 FIH/CNT metadata instead of reading the full PKG. When available, `GET /api/packages` includes `title`, `displayTitle`, `secondaryTitle`, `localizedTitles`, `titleId`, `contentId`, `version`, `masterVersion`, `targetVersion`, `applicationCategoryType`, `packageType`, and `packageTypeSource`.
 
 Metadata parsing is best-effort. A malformed, encrypted, or unsupported metadata layout leaves `metadataParsed=false` but does not remove the file from the library or block installation.
 
+Localized titles are read from the PKG's own `localizedParameters`; they are not machine translated. `displayTitle` prefers an English title when present. `secondaryTitle` uses the first available value in this order: PKG Chinese title → PKG Japanese title → local alias table. It is omitted when it would duplicate the primary display title.
+
 Package type values are `game`, `patch`, `dlc`, `app`, or `unknown`. Patch classification uses structural/target-version signals. DLC classification may currently use the upstream-compatible title/content-id/filename heuristic and is explicitly marked with `packageTypeSource=heuristic`.
+
+## Local title aliases
+
+The daemon can load an optional local alias file from `PKGSENDER_TITLE_ALIASES_FILE`. Native SPK sets this automatically to its package app-data path `aliases.json`; missing files are treated as an empty alias table. The service never searches the network or writes aliases automatically.
+
+Alias keys are normalized `titleId` or `contentId` values. Values are localized title strings. Aliases are used only when the PKG itself has no Chinese or Japanese subtitle.
+
+```json
+{
+  "_aiPrompt": "Copy GET /api/title-alias-export aiPrompt here; the daemon ignores this field.",
+  "PPSA07862": {
+    "zh-Hans": "怪物猎人：荒野",
+    "zh-Hant": "魔物獵人 荒野"
+  },
+  "PPSA32802": {
+    "zh-Hans": "零 ～红蝶～ REMAKE",
+    "zh-Hant": "零 ～紅蝶～ REMAKE"
+  }
+}
+```
+
+Export titles that still need aliases:
+
+```sh
+curl http://NAS_IP:9898/api/title-alias-missing
+```
+
+Export a complete manual-curation package with `missing`, editable `aliasTemplate`, and an `aiPrompt` that can be copied to an AI assistant to look up simplified Chinese names by Title ID:
+
+```sh
+curl http://NAS_IP:9898/api/title-alias-export
+```
+
+After the AI returns JSON, paste it into the Web UI via **Import aliases**, or import it through the API. Import writes `aliases.json` atomically, preserves existing non-empty aliases, reloads the alias table, and rescans the library immediately:
+
+```sh
+curl -X POST http://NAS_IP:9898/api/title-alias-import \
+  -H 'Content-Type: application/json' \
+  --data-binary @aliases.json
+```
 
 ## Game families
 
 `GET /api/families` groups the current scan by normalized `titleId`. A family contains its title, aggregate size, package count, and the concrete packages that can still be installed independently by package ID.
 
-Within a family, packages are ordered as Game → Patch → DLC → App → Unknown; patch versions are ordered newest first. The family title prefers the parsed Game title, so DLC or patch labels do not replace the base game's display name.
+Within a family, packages are ordered as Game → Patch → DLC → App → Unknown; patch versions are ordered newest first. The family title prefers the parsed Game display title, so DLC or patch labels do not replace the base game's display name. When available, the UI shows English as the primary title and Chinese, then Japanese, then local alias as the secondary title.
 
 Packages without a Title ID are never dropped or combined arbitrarily: each receives its own fallback family keyed by its opaque package ID. Family grouping is derived in memory from the current scan and does not add a database.
 
@@ -66,7 +108,7 @@ The embedded UI reports whether the configured PS5 is currently visible by beaco
 Open `http://NAS_IP:9898/ui/` in a browser. The embedded UI has no third-party runtime dependencies and provides:
 
 - Title-ID family grouping with nested Game/Patch/DLC package rows;
-- PKG metadata listing and filtering;
+- PKG metadata listing and filtering, including English primary titles and Chinese/Japanese/local-alias secondary titles when available;
 - manual library rescan;
 - an Install action with confirmation;
 - a persistent FIFO install queue with explicit manual Retry for failed/interrupted attempts and Cancel for records that are still queued;
@@ -86,9 +128,11 @@ Required:
 Optional:
 
 - `PKGSENDER_PACKAGE_DIR` (default `/packages`)
+- `PKGSENDER_PACKAGE_DIRS`: optional JSON array for multiple library roots. When set, it takes precedence over `PKGSENDER_PACKAGE_DIR`, for example `["/volume1/PS5/PKG","/volume1/PS5/MorePKG"]`.
 - `PKGSENDER_LISTEN` (default `:9898`)
 - `PKGSENDER_PS5_PORT` (default `12800`)
 - `PKGSENDER_HISTORY_FILE`: JSON persistence path for recent install history and queue state. If unset, the queue is explicitly memory-only. Native SPK sets this automatically to its package app-data directory. If a configured file cannot be opened or decoded, browsing/Range/health remain available but new install/retry requests fail closed with HTTP 503 rather than silently degrading to a volatile queue.
+- `PKGSENDER_TITLE_ALIASES_FILE`: optional JSON file for manually curated title aliases. If unset or missing, aliases are empty. Native SPK sets this automatically to its package app-data directory.
 
 ## Synology Container Manager
 
@@ -112,7 +156,7 @@ A native DSM 7 SPK build is available under `spk/`. It packages the same Go serv
 
 The Docker and native package variants both use port 9898 by default. Do not start both at the same time.
 
-Real-hardware acceptance on DSM 7.2.2 / DS1517+ is current through SPK `0.1.0-0011`. The full FIFO behavior was exercised with the `0007` binary using localhost-only sender/receiver endpoints: first-active/second-queued serialization, restart conversion of an accepted active record to `interrupted` without replay, automatic resume of a still-queued record, explicit Retry creating a new `retryOf` record, FIFO release only after a complete HTTP transfer, and `0600` package-owned persistence all passed. `0008` added corrupt-persistence fail-closed behavior; `0009` added fail-closed in-memory rollback and FIFO position display. `0010` passed queued-only cancellation. `0011` passed an in-place production upgrade and an isolated reordering gate: A was active while B/C were queued, C was moved above B without contacting the receiver, completing A released the FIFO slot, and the second fake-receiver install request was `C.pkg`; the temporary queue file remained `PKGSenderNAS:PKGSenderNAS` mode `0600` and all test processes/files/listeners were removed. Production remains healthy with 5 PKGs, PS5 beacon online, `/api/history` equal to `[]`, Range 206, and the previous Docker container stopped as a rollback path.
+Real-hardware acceptance on DSM 7.2.2 / DS1517+ is current through SPK `0.1.0-0021`. The full FIFO behavior was exercised with the `0007` binary using localhost-only sender/receiver endpoints: first-active/second-queued serialization, restart conversion of an accepted active record to `interrupted` without replay, automatic resume of a still-queued record, explicit Retry creating a new `retryOf` record, FIFO release only after a complete HTTP transfer, and `0600` package-owned persistence all passed. `0008` added corrupt-persistence fail-closed behavior; `0009` added fail-closed in-memory rollback and FIFO position display. `0010` passed queued-only cancellation. `0011` passed an in-place production upgrade and an isolated reordering gate. `0012` added localized title display from PKG metadata. `0013` adds Japanese subtitle fallback plus offline local alias fallback and missing-alias export. `0014` adds an AI-prompt export package and Web UI copy action for manual alias curation. `0015` adds paste-and-import alias JSON with atomic write, merge, reload, and immediate rescan. `0016` adds browser-language based Chinese/English Web UI localization, a manual language switch, simplified package metadata rows, relative-path-only display, and Installed/已安装 reinstall confirmation behavior. `0017` adds configurable PS5 target IP and DSM UI entry. `0018` removes the path label prefix, keeps the language switch at the far right, and makes Installed/已安装 buttons gray while preserving reinstall confirmation behavior. `0020` removes NAS-side payload sending, places the PS5 IP controls in the status row, and makes online/offline state bold with green/red coloring. `0021` adds Web-configurable multi-root PKG library paths via `PKGSENDER_PACKAGE_DIRS` while preserving single-root `PKGSENDER_PACKAGE_DIR` compatibility. Production remains healthy with 5+ PKGs, PS5 beacon status available, Range 206, and the previous Docker container stopped as a rollback path.
 
 ## Smoke test
 

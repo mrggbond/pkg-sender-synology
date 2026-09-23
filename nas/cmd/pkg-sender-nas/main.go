@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -29,7 +30,18 @@ func main() {
 		logger.Fatalf("configuration error: %v", err)
 	}
 
-	store, err := pkgstore.New(cfg.packageDir)
+	titleAliases := pkgstore.TitleAliases{}
+	if cfg.titleAliasesFile != "" {
+		loadedAliases, aliasErr := pkgstore.LoadTitleAliasesFile(cfg.titleAliasesFile)
+		if aliasErr != nil {
+			logger.Printf("title aliases unavailable (%s): %v; continuing without local title aliases", cfg.titleAliasesFile, aliasErr)
+		} else {
+			titleAliases = loadedAliases
+			logger.Printf("title aliases: %s", cfg.titleAliasesFile)
+		}
+	}
+
+	store, err := pkgstore.NewWithRootsAndTitleAliases(cfg.packageDirs, titleAliases)
 	if err != nil {
 		logger.Fatalf("package store: %v", err)
 	}
@@ -38,7 +50,7 @@ func main() {
 		logger.Fatalf("initial package scan: %v", err)
 	}
 
-	ps5Client, err := ps5.New(cfg.ps5IP, cfg.ps5Port, 10*time.Second)
+	ps5Client, err := ps5.NewDynamic(cfg.ps5IP, cfg.ps5Port, 10*time.Second)
 	if err != nil {
 		logger.Fatalf("PS5 client: %v", err)
 	}
@@ -63,6 +75,12 @@ func main() {
 	if err != nil {
 		logger.Fatalf("HTTP server: %v", err)
 	}
+	if cfg.titleAliasesFile != "" {
+		app.SetTitleAliasesFile(cfg.titleAliasesFile)
+	}
+	if cfg.configFile != "" {
+		app.SetConfigFile(cfg.configFile)
+	}
 
 	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -80,7 +98,7 @@ func main() {
 		// No WriteTimeout: PKG transfers can legitimately run for a long time.
 	}
 
-	logger.Printf("package root: %s", store.Root())
+	logger.Printf("package roots: %s", strings.Join(store.Roots(), ", "))
 	logger.Printf("initial scan: %d pkg file(s)", count)
 	logger.Printf("PS5 receiver: http://%s:%d", cfg.ps5IP, cfg.ps5Port)
 	logger.Printf("PS5 discovery: UDP :%d (best effort)", discovery.BeaconPort)
@@ -123,22 +141,25 @@ func main() {
 }
 
 type config struct {
-	packageDir    string
-	listen        string
-	publicBaseURL string
-	ps5IP         string
-	ps5Port       int
-	historyFile   string
+	packageDirs      []string
+	listen           string
+	publicBaseURL    string
+	ps5IP            string
+	ps5Port          int
+	historyFile      string
+	titleAliasesFile string
+	configFile       string
 }
 
 func loadConfig() (config, error) {
 	cfg := config{
-		packageDir:    envOr("PKGSENDER_PACKAGE_DIR", "/packages"),
-		listen:        envOr("PKGSENDER_LISTEN", ":9898"),
-		publicBaseURL: strings.TrimSpace(os.Getenv("PKGSENDER_PUBLIC_BASE_URL")),
-		ps5IP:         strings.TrimSpace(os.Getenv("PKGSENDER_PS5_IP")),
-		ps5Port:       12800,
-		historyFile:   strings.TrimSpace(os.Getenv("PKGSENDER_HISTORY_FILE")),
+		listen:           envOr("PKGSENDER_LISTEN", ":9898"),
+		publicBaseURL:    strings.TrimSpace(os.Getenv("PKGSENDER_PUBLIC_BASE_URL")),
+		ps5IP:            strings.TrimSpace(os.Getenv("PKGSENDER_PS5_IP")),
+		ps5Port:          12800,
+		historyFile:      strings.TrimSpace(os.Getenv("PKGSENDER_HISTORY_FILE")),
+		titleAliasesFile: strings.TrimSpace(os.Getenv("PKGSENDER_TITLE_ALIASES_FILE")),
+		configFile:       strings.TrimSpace(os.Getenv("PKGSENDER_CONFIG_FILE")),
 	}
 	if cfg.ps5IP == "" {
 		return config{}, errors.New("PKGSENDER_PS5_IP is required")
@@ -146,6 +167,11 @@ func loadConfig() (config, error) {
 	if cfg.publicBaseURL == "" {
 		return config{}, errors.New("PKGSENDER_PUBLIC_BASE_URL is required")
 	}
+	packageDirs, err := loadPackageDirs()
+	if err != nil {
+		return config{}, err
+	}
+	cfg.packageDirs = packageDirs
 
 	if raw := strings.TrimSpace(os.Getenv("PKGSENDER_PS5_PORT")); raw != "" {
 		port, err := strconv.Atoi(raw)
@@ -155,6 +181,19 @@ func loadConfig() (config, error) {
 		cfg.ps5Port = port
 	}
 	return cfg, nil
+}
+
+func loadPackageDirs() ([]string, error) {
+	if raw := strings.TrimSpace(os.Getenv("PKGSENDER_PACKAGE_DIRS")); raw != "" {
+		var dirs []string
+		if err := json.Unmarshal([]byte(raw), &dirs); err != nil {
+			return nil, fmt.Errorf("invalid PKGSENDER_PACKAGE_DIRS: %w", err)
+		}
+		if len(dirs) != 0 {
+			return dirs, nil
+		}
+	}
+	return []string{envOr("PKGSENDER_PACKAGE_DIR", "/packages")}, nil
 }
 
 func envOr(name, fallback string) string {

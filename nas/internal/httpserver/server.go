@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/Loopayeh/pkg-sender/nas/internal/history"
 	"github.com/Loopayeh/pkg-sender/nas/internal/pkgmeta"
 	"github.com/Loopayeh/pkg-sender/nas/internal/pkgstore"
+	"github.com/Loopayeh/pkg-sender/nas/internal/ps5"
 )
 
 type Installer interface {
@@ -31,18 +33,31 @@ type DiscoveryProvider interface {
 	Snapshot() discovery.Snapshot
 }
 
+type ConfigurableInstaller interface {
+	Installer
+	Target() ps5.Target
+	SetIP(string) error
+}
+
+type ConfiguredDiscoveryProvider interface {
+	DiscoveryProvider
+	SetConfiguredIP(string)
+}
+
 type Server struct {
-	store         *pkgstore.Store
-	installer     Installer
-	discovery     DiscoveryProvider
-	history       *history.Store
-	publicBaseURL string
-	logger        *log.Logger
-	transfers     *transferTracker
-	queueMu       sync.Mutex
-	queueRunning  bool
-	queuePending  bool
-	mux           *http.ServeMux
+	store            *pkgstore.Store
+	installer        Installer
+	discovery        DiscoveryProvider
+	history          *history.Store
+	configFile       string
+	publicBaseURL    string
+	titleAliasesFile string
+	logger           *log.Logger
+	transfers        *transferTracker
+	queueMu          sync.Mutex
+	queueRunning     bool
+	queuePending     bool
+	mux              *http.ServeMux
 }
 
 func New(store *pkgstore.Store, installer Installer, publicBaseURL string, logger *log.Logger, discoveryProvider ...DiscoveryProvider) (*Server, error) {
@@ -106,6 +121,14 @@ func (s *Server) Handler() http.Handler {
 	return s.mux
 }
 
+func (s *Server) SetTitleAliasesFile(path string) {
+	s.titleAliasesFile = strings.TrimSpace(path)
+}
+
+func (s *Server) SetConfigFile(path string) {
+	s.configFile = strings.TrimSpace(path)
+}
+
 func (s *Server) routes() {
 	s.mux.HandleFunc("/", s.handleRoot)
 	s.mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +140,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/families", s.handleFamilies)
 	s.mux.HandleFunc("/api/transfers", s.handleTransfers)
 	s.mux.HandleFunc("/api/history", s.handleHistory)
+	s.mux.HandleFunc("/api/title-alias-missing", s.handleTitleAliasMissing)
+	s.mux.HandleFunc("/api/title-alias-export", s.handleTitleAliasExport)
+	s.mux.HandleFunc("/api/title-alias-import", s.handleTitleAliasImport)
+	s.mux.HandleFunc("/api/settings", s.handleSettings)
+	s.mux.HandleFunc("/api/settings/ps5", s.handlePS5Settings)
+	s.mux.HandleFunc("/api/settings/libraries", s.handleLibrarySettings)
 	s.mux.HandleFunc("/api/discovery", s.handleDiscovery)
 	s.mux.HandleFunc("/api/rescan", s.handleRescan)
 	s.mux.HandleFunc("/api/install/", s.handleInstall)
@@ -141,20 +170,26 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		"service":  "pkg-sender-nas",
 		"packages": len(s.store.List()),
 		"endpoints": map[string]string{
-			"ui":        "GET /ui/",
-			"packages":  "GET /api/packages",
-			"families":  "GET /api/families",
-			"transfers": "GET /api/transfers",
-			"history":   "GET /api/history",
-			"discovery": "GET /api/discovery",
-			"rescan":    "POST /api/rescan",
-			"install":   "POST /api/install/{id}",
-			"retry":     "POST /api/retry/{historyId}",
-			"reorder":   "POST /api/reorder/{historyId}",
-			"cancel":    "POST /api/cancel/{historyId}",
-			"icon":      "GET|HEAD /icon/{id}",
-			"package":   "GET|HEAD /pkg/{id}",
-			"health":    "GET /health",
+			"ui":                "GET /ui/",
+			"packages":          "GET /api/packages",
+			"families":          "GET /api/families",
+			"transfers":         "GET /api/transfers",
+			"history":           "GET /api/history",
+			"titleAliasMissing": "GET /api/title-alias-missing",
+			"titleAliasExport":  "GET /api/title-alias-export",
+			"titleAliasImport":  "POST /api/title-alias-import",
+			"settings":          "GET /api/settings",
+			"ps5Settings":       "POST /api/settings/ps5",
+			"librarySettings":   "POST /api/settings/libraries",
+			"discovery":         "GET /api/discovery",
+			"rescan":            "POST /api/rescan",
+			"install":           "POST /api/install/{id}",
+			"retry":             "POST /api/retry/{historyId}",
+			"reorder":           "POST /api/reorder/{historyId}",
+			"cancel":            "POST /api/cancel/{historyId}",
+			"icon":              "GET|HEAD /icon/{id}",
+			"package":           "GET|HEAD /pkg/{id}",
+			"health":            "GET /health",
 		},
 	})
 }
@@ -200,6 +235,204 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.history.List())
+}
+
+func (s *Server) targetController() (ConfigurableInstaller, bool) {
+	controller, ok := s.installer.(ConfigurableInstaller)
+	return controller, ok
+}
+
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		methodNotAllowed(w, "GET, HEAD")
+		return
+	}
+	controller, ok := s.targetController()
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "PS5 settings are not configurable")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ps5":       controller.Target(),
+		"libraries": map[string]any{"paths": s.store.Roots()},
+	})
+}
+
+func (s *Server) handlePS5Settings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, "POST")
+		return
+	}
+	controller, ok := s.targetController()
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "PS5 settings are not configurable")
+		return
+	}
+	var request struct {
+		IP string `json:"ip"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 4096))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid PS5 settings request")
+		return
+	}
+	if request.IP == "" {
+		writeError(w, http.StatusBadRequest, "PS5 IP is required")
+		return
+	}
+	if err := controller.SetIP(request.IP); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	target := controller.Target()
+	if configured, ok := s.discovery.(ConfiguredDiscoveryProvider); ok {
+		configured.SetConfiguredIP(target.IP)
+	}
+	if s.configFile != "" {
+		if err := updateConfigEnvValue(s.configFile, "PKGSENDER_PS5_IP", target.IP); err != nil {
+			s.logger.Printf("persist PS5 IP failed: %v", err)
+			writeError(w, http.StatusInternalServerError, "PS5 IP updated in memory but could not be persisted")
+			return
+		}
+	}
+	s.logger.Printf("PS5 target updated: %s:%d", target.IP, target.Port)
+	writeJSON(w, http.StatusOK, map[string]any{"ps5": target, "libraries": map[string]any{"paths": s.store.Roots()}})
+}
+
+func (s *Server) handleLibrarySettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, "POST")
+		return
+	}
+	var request struct {
+		Paths []string `json:"paths"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 16<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid library settings request")
+		return
+	}
+	paths, err := pkgstore.NormalizeRoots(request.Paths)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if s.configFile != "" {
+		encoded, err := json.Marshal(paths)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "library paths could not be encoded")
+			return
+		}
+		if err := updateConfigEnvValue(s.configFile, "PKGSENDER_PACKAGE_DIRS", string(encoded)); err != nil {
+			s.logger.Printf("persist package library paths failed: %v", err)
+			writeError(w, http.StatusInternalServerError, "library paths could not be persisted")
+			return
+		}
+		if err := updateConfigEnvValue(s.configFile, "PKGSENDER_PACKAGE_DIR", paths[0]); err != nil {
+			s.logger.Printf("persist primary package library path failed: %v", err)
+			writeError(w, http.StatusInternalServerError, "primary library path could not be persisted")
+			return
+		}
+	}
+	if err := s.store.SetRoots(paths); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	count, err := s.store.Scan()
+	if err != nil {
+		s.logger.Printf("rescan after library settings failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "library paths saved but rescan failed")
+		return
+	}
+	s.logger.Printf("package library paths updated: %s; rescanned %d pkg file(s)", strings.Join(paths, ", "), count)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ps5":       s.currentTarget(),
+		"libraries": map[string]any{"paths": paths},
+		"packages":  count,
+	})
+}
+
+func (s *Server) currentTarget() any {
+	if controller, ok := s.targetController(); ok {
+		return controller.Target()
+	}
+	return nil
+}
+
+func (s *Server) handleTitleAliasMissing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		methodNotAllowed(w, "GET, HEAD")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.store.MissingTitleAliases())
+}
+
+func (s *Server) handleTitleAliasExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		methodNotAllowed(w, "GET, HEAD")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.store.TitleAliasExport())
+}
+
+func (s *Server) handleTitleAliasImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, "POST")
+		return
+	}
+	if s.titleAliasesFile == "" {
+		writeError(w, http.StatusServiceUnavailable, "title alias import is not configured")
+		return
+	}
+	const maxTitleAliasImportBytes = 256 << 10
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxTitleAliasImportBytes+1))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read alias JSON")
+		return
+	}
+	if len(body) > maxTitleAliasImportBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "alias JSON is too large")
+		return
+	}
+	aliases, result, err := pkgstore.ImportTitleAliasesFile(s.titleAliasesFile, body)
+	if err != nil {
+		status := http.StatusInternalServerError
+		message := "title alias import failed"
+		if isTitleAliasInputError(err) {
+			status = http.StatusBadRequest
+			message = "invalid title alias JSON"
+		}
+		s.logger.Printf("title alias import failed: %v", err)
+		writeError(w, status, message)
+		return
+	}
+	s.store.SetTitleAliases(aliases)
+	count, err := s.store.Scan()
+	if err != nil {
+		s.logger.Printf("rescan after title alias import failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "title alias import saved but rescan failed")
+		return
+	}
+	s.logger.Printf("title aliases imported: %d title(s), %d localized value(s); rescanned %d pkg file(s)", result.Titles, result.Languages, count)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"titles":    result.Titles,
+		"languages": result.Languages,
+		"packages":  count,
+		"missing":   s.store.MissingTitleAliases(),
+	})
+}
+
+func isTitleAliasInputError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "invalid character") ||
+		strings.Contains(message, "cannot unmarshal") ||
+		strings.Contains(message, "must be an object") ||
+		strings.Contains(message, "aliasTemplate must be an object")
 }
 
 func (s *Server) handleDiscovery(w http.ResponseWriter, r *http.Request) {
@@ -652,6 +885,50 @@ func (s *Server) drainQueue() {
 		}
 		return
 	}
+}
+
+func updateConfigEnvValue(filePath, key, value string) error {
+	if strings.TrimSpace(filePath) == "" {
+		return errors.New("config file path is empty")
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+	quoted := key + "=" + strconv.Quote(value)
+	lines := strings.Split(string(data), "\n")
+	updated := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, key+"=") || strings.HasPrefix(trimmed, "export "+key+"=") {
+			if strings.HasPrefix(trimmed, "export ") {
+				lines[i] = "export " + quoted
+			} else {
+				lines[i] = quoted
+			}
+			updated = true
+		}
+	}
+	if !updated {
+		if len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines[len(lines)-1] = quoted
+		} else {
+			lines = append(lines, quoted)
+		}
+	}
+	body := strings.Join(lines, "\n")
+	if !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	tmp := filePath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(body), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, filePath); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func routeID(requestPath, prefix string) (string, bool) {

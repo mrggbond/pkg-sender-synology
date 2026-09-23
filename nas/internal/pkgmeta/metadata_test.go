@@ -22,6 +22,7 @@ func TestReadPS5FIHMetadata(t *testing.T) {
 		"applicationCategoryType": 0,
 		"localizedParameters": map[string]any{
 			"defaultLanguage": "zh-Hans",
+			"en-US":           map[string]any{"titleName": "Test Game"},
 			"zh-Hans":         map[string]any{"titleName": "测试游戏"},
 		},
 	})
@@ -37,6 +38,10 @@ func TestReadPS5FIHMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	if meta.Title != "测试游戏" ||
+		meta.DisplayTitle != "Test Game" ||
+		meta.SecondaryTitle != "测试游戏" ||
+		meta.LocalizedTitles["en-US"] != "Test Game" ||
+		meta.LocalizedTitles["zh-Hans"] != "测试游戏" ||
 		meta.TitleID != "PPSA12345" ||
 		meta.ContentID != "UP0001-PPSA12345_00-EXAMPLEGAME00001" ||
 		meta.Version != "01.234.000" ||
@@ -51,7 +56,52 @@ func TestReadPS5FIHMetadata(t *testing.T) {
 	}
 }
 
+func TestReadLocalizedTitlesDoesNotDuplicateSameChineseTitle(t *testing.T) {
+	param := []byte(`{
+		"titleId":"PPSA33333",
+		"applicationCategoryType":0,
+		"localizedParameters":{
+			"defaultLanguage":"zh-Hant",
+			"zh-Hant":{"titleName":"相同標題"},
+			"zh-TW":{"titleName":"相同標題"}
+		}
+	}`)
+	data := buildFixture(t, false, "UP0001-PPSA33333_00-SAMETITLE0000001", []fixtureEntry{
+		{id: 0x2000, data: param},
+	})
+	meta, err := Read(bytes.NewReader(data), int64(len(data)), "Game.pkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.DisplayTitle != "相同標題" || meta.SecondaryTitle != "" {
+		t.Fatalf("unexpected display titles: %+v", meta)
+	}
+}
+
+func TestReadLocalizedTitlesUsesJapaneseSecondaryAfterChinese(t *testing.T) {
+	param := []byte(`{
+		"titleId":"PPSA44444",
+		"applicationCategoryType":0,
+		"localizedParameters":{
+			"defaultLanguage":"en-US",
+			"en-US":{"titleName":"Fatal Frame"},
+			"ja-JP":{"titleName":"零"}
+		}
+	}`)
+	data := buildFixture(t, false, "UP0001-PPSA44444_00-JPTITLE000000001", []fixtureEntry{
+		{id: 0x2000, data: param},
+	})
+	meta, err := Read(bytes.NewReader(data), int64(len(data)), "Game.pkg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.DisplayTitle != "Fatal Frame" || meta.SecondaryTitle != "零" {
+		t.Fatalf("unexpected display titles: %+v", meta)
+	}
+}
+
 func TestReadPatchByStructure(t *testing.T) {
+
 	param := []byte(`{
 		"titleId":"PPSA54321",
 		"contentVersion":"02.000.001",

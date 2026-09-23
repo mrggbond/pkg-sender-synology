@@ -33,8 +33,11 @@ grep -q '^package="PKGSenderNAS"$' "${TOP}/INFO"
 grep -q '^os_min_ver="7\.0-40000"$' "${TOP}/INFO"
 grep -q '^startable="yes"$' "${TOP}/INFO"
 grep -q '^ctlscript="start-stop-status"$' "${TOP}/INFO"
+grep -q '^maintainer="mrggbond"$' "${TOP}/INFO"
+grep -q '^dsmuidir="ui"$' "${TOP}/INFO"
+grep -q '^dsmappname="PKGSenderNAS"$' "${TOP}/INFO"
 if grep -q '^adminport=' "${TOP}/INFO"; then
-    echo "SPK must not declare adminport; DSM already owns the migration port through WebStation." >&2
+    echo "SPK must not declare adminport; DSM reports a port conflict on 9898." >&2
     exit 1
 fi
 grep -q '^package_icon="' "${TOP}/INFO"
@@ -47,6 +50,7 @@ for script in "${TOP}/scripts/"*; do
     /bin/sh -n "${script}"
 done
 grep -q 'PKGSENDER_HISTORY_FILE' "${TOP}/scripts/start-stop-status"
+grep -q 'PKGSENDER_CONFIG_FILE' "${TOP}/scripts/start-stop-status"
 
 tar -xf "${TOP}/package.tgz" -C "${PAYLOAD}"
 
@@ -62,7 +66,7 @@ EXPECTED_MD5="$(awk -F'"' '/^checksum="/ {print $2; exit}' "${TOP}/INFO")"
     echo "package.tgz checksum mismatch." >&2
     exit 1
 }
-for required in     bin/pkg-sender-nas     share/config.env.example     var/PKGSenderNAS.sc
+for required in     bin/pkg-sender-nas     share/config.env.example     var/PKGSenderNAS.sc     ui/config     ui/index.html     ui/images/icon_16.png     ui/images/icon_32.png
 do
     [ -f "${PAYLOAD}/${required}" ] || {
         echo "Missing payload entry: ${required}" >&2

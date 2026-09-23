@@ -6,13 +6,14 @@ import (
 )
 
 type Family struct {
-	ID           string    `json:"id"`
-	TitleID      string    `json:"titleId,omitempty"`
-	Title        string    `json:"title"`
-	Platform     string    `json:"platform,omitempty"`
-	PackageCount int       `json:"packageCount"`
-	TotalSize    int64     `json:"totalSize"`
-	Packages     []Package `json:"packages"`
+	ID             string    `json:"id"`
+	TitleID        string    `json:"titleId,omitempty"`
+	Title          string    `json:"title"`
+	SecondaryTitle string    `json:"secondaryTitle,omitempty"`
+	Platform       string    `json:"platform,omitempty"`
+	PackageCount   int       `json:"packageCount"`
+	TotalSize      int64     `json:"totalSize"`
+	Packages       []Package `json:"packages"`
 }
 
 func (s *Store) Families() []Family {
@@ -53,8 +54,9 @@ func BuildFamilies(packages []Package) []Family {
 		}
 
 		rank := familyTitleRank(pkg)
-		if title := strings.TrimSpace(pkg.Title); title != "" && rank < builder.titleRank {
+		if title := packageDisplayTitle(pkg); title != "" && rank < builder.titleRank {
 			builder.family.Title = title
+			builder.family.SecondaryTitle = packageSecondaryTitle(pkg, title)
 			builder.titleRank = rank
 		}
 	}
@@ -96,7 +98,7 @@ func familyKey(pkg Package) (string, string) {
 }
 
 func familyTitleRank(pkg Package) int {
-	if strings.TrimSpace(pkg.Title) == "" {
+	if packageDisplayTitle(pkg) == "" {
 		return 100
 	}
 	switch pkg.PackageType {
@@ -114,13 +116,28 @@ func familyTitleRank(pkg Package) int {
 }
 
 func familyFallbackTitle(pkg Package) string {
-	if title := strings.TrimSpace(pkg.Title); title != "" {
+	if title := packageDisplayTitle(pkg); title != "" {
 		return title
 	}
 	if name := strings.TrimSpace(pkg.Name); name != "" {
 		return name
 	}
 	return pkg.ID
+}
+
+func packageDisplayTitle(pkg Package) string {
+	if title := strings.TrimSpace(pkg.DisplayTitle); title != "" {
+		return title
+	}
+	return strings.TrimSpace(pkg.Title)
+}
+
+func packageSecondaryTitle(pkg Package, primary string) string {
+	secondary := strings.TrimSpace(pkg.SecondaryTitle)
+	if secondary == "" || strings.EqualFold(secondary, strings.TrimSpace(primary)) {
+		return ""
+	}
+	return secondary
 }
 
 func packageTypeRank(packageType string) int {

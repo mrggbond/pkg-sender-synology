@@ -55,6 +55,15 @@ func NewWithPort(configuredIP string, port int) *Listener {
 	}
 }
 
+func (l *Listener) SetConfiguredIP(ip string) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	l.configuredIP = strings.TrimSpace(ip)
+	l.mu.Unlock()
+}
+
 func (l *Listener) Listen(ctx context.Context) error {
 	if l == nil {
 		return errors.New("discovery listener is nil")

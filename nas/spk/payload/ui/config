@@ -1,0 +1,10 @@
+{
+  "PKGSenderNAS": {
+    "title": "PS5 PKG Sender",
+    "desc": "Open PS5 PKG Sender Web UI",
+    "icon": "images/icon_{0}.png",
+    "type": "url",
+    "url": "index.html",
+    "allUsers": true
+  }
+}

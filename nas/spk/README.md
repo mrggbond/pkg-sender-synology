@@ -20,9 +20,9 @@ GO_BIN=/path/to/go ./build.sh
 
 Defaults:
 
-- version: `0.1.0-0011`
+- version: `0.1.0-0021`
 - architecture: `x86_64`
-- output: `dist/PKGSenderNAS-0.1.0-0011-x86_64.spk`
+- output: `dist/PKGSenderNAS-0.1.0-0021-x86_64.spk`
 
 ARM64 package:
 
@@ -44,6 +44,8 @@ from the bundled example. Replace the two `CHANGE_ME_*` values and set the PKG l
 
 ```sh
 PKGSENDER_PACKAGE_DIR="/volume1/PS5/PKG"
+# Optional multi-root override:
+# PKGSENDER_PACKAGE_DIRS='["/volume1/PS5/PKG","/volume1/PS5/MorePKG"]'
 PKGSENDER_LISTEN=":9898"
 PKGSENDER_PUBLIC_BASE_URL="http://192.168.32.5:9898"
 PKGSENDER_PS5_IP="192.168.32.100"
@@ -54,7 +56,7 @@ If the config is missing or still contains `CHANGE_ME`, the lifecycle script rep
 
 ## Shared-folder permission
 
-The native process runs as the package identity rather than root. In DSM Shared Folder permissions, grant the system-internal user associated with **PS5 PKG Sender / PKGSenderNAS** read/traverse access to the directory configured by `PKGSENDER_PACKAGE_DIR`. Write permission is not required.
+The native process runs as the package identity rather than root. In DSM Shared Folder permissions, grant the system-internal user associated with **PS5 PKG Sender / PKGSenderNAS** read/traverse access to every directory configured by `PKGSENDER_PACKAGE_DIR` or `PKGSENDER_PACKAGE_DIRS`. Write permission is not required.
 
 On DSM installations where the shared folder uses Synology ACLs, Unix mode bits alone may not be sufficient. Grant the package identity read/traverse access to the library path and its existing descendants. The DS1517+ migration target required an explicit `PKGSenderNAS` read/traverse ACE because the shared-folder ACL otherwise denied the package user even though the directory mode was permissive.
 
@@ -64,6 +66,7 @@ Persistent package data:
 
 ```text
 /var/packages/PKGSenderNAS/var/
+├── aliases.json
 ├── config.env
 ├── history.json
 ├── pkg-sender-nas.log
@@ -71,6 +74,8 @@ Persistent package data:
 ```
 
 The lifecycle script exports `PKGSENDER_HISTORY_FILE=${VAR_DIR}/history.json` automatically. Users do not need to add this setting to `config.env`. The daemon keeps at most 100 recent install records and writes the file with mode `0600` using atomic replacement. Upgrades preserve the package app-data directory, so `history.json` survives SPK upgrades and restarts.
+
+The lifecycle script also exports `PKGSENDER_TITLE_ALIASES_FILE=${VAR_DIR}/aliases.json` automatically. Missing `aliases.json` is valid and simply means no manual aliases are applied. If present, this file must be manually curated JSON; the daemon never searches the network for titles.
 
 Because the native package always configures persistent queue storage, failure to open or decode `history.json` disables new Install/Retry queue writes with HTTP 503 while leaving browsing, health, discovery, metadata, covers, and Range serving operational. The daemon does not silently downgrade a broken configured store to a volatile memory-only queue.
 
@@ -98,9 +103,9 @@ DSM 7.2.2 also exposes `synopkg query <spk>`, but it is not used as a blocking v
 
 ## Real-hardware migration acceptance
 
-DSM 7.2.2 on DS1517+ (`x86_64`, `avoton`) has passed the native-package, discovery, persistent-history, FIFO-queue, persistence-failure, queued-cancellation, and queued-reordering gates through `0.1.0-0011`:
+DSM 7.2.2 on DS1517+ (`x86_64`, `avoton`) has passed the native-package, discovery, persistent-history, FIFO-queue, persistence-failure, queued-cancellation, queued-reordering, localized-title, Japanese-fallback, local-alias, alias-export, alias-import, bilingual-UI, configurable PS5 target, DSM UI-entry, and payload-sender-removal gates through `0.1.0-0020`:
 
-- upgrades preserve `config.env` byte-for-byte and restart cleanly; production currently runs `0.1.0-0011`;
+- upgrades preserve `config.env` byte-for-byte and restart cleanly; production currently runs `0.1.0-0020`;
 - the daemon runs as `PKGSenderNAS:PKGSenderNAS`, not root, and the package identity can read the existing PS5 PKG library through Synology ACLs;
 - DSM registers only `12801/udp` for discovery; the configured PS5 at `192.168.32.100` remains beacon-online;
 - `/health` reports all 5 PKGs and HTTP Range remains `206 Partial Content` after both queue-stage upgrades;
@@ -113,6 +118,10 @@ DSM 7.2.2 on DS1517+ (`x86_64`, `avoton`) has passed the native-package, discove
 - `0009` additionally rolls back in-memory queue state when a required persistence update fails, preventing the worker from releasing the next FIFO slot on a disk error; the Web UI displays persisted queued items with their FIFO position; the production upgrade preserved config byte-for-byte and passed health, discovery, empty-history, Range 206, UI-contract, and Docker-rollback checks;
 - `0010` adds persisted queued-only cancellation: a localhost-only hardware gate queued A then B, observed A `active` / B `queued` with exactly one fake-receiver POST, cancelled B with HTTP 200 and no extra POST, rejected cancellation of active A with HTTP 409, then verified after sender restart that A became `interrupted`, B remained `cancelled`, and the receiver POST count was still one; the cancellation history file remained package-owned mode `0600` and all test artifacts were removed;
 - `0011` adds persisted `queueOrder`, queued-only Up/Down reordering, backward migration for older queued records without an order, and Web UI queue controls; an isolated hardware gate observed A `active` with B/C `queued`, moved C above B without an extra receiver POST, completed A's full 10-byte Range transfer, then verified the second receiver install request was `C.pkg`, with C `active` and B still `queued`; submitting/active records remained immovable, the history file was `PKGSenderNAS:PKGSenderNAS` mode `0600`, and all temporary test artifacts/listeners were removed;
+- `0012` adds English primary and Chinese secondary title display from PKG `localizedParameters`; production metadata shows `Crimson Desert` with secondary title `赤血沙漠`;
+- `0013` adds Japanese subtitle fallback, offline local alias fallback from `aliases.json`, and `GET /api/title-alias-missing` for manually curating aliases; production shows Japanese subtitle fallback where available and does not use network lookup;
+- `0014` adds `GET /api/title-alias-export`, an editable alias template with `_aiPrompt`, and a Web UI button to copy an AI prompt for manual simplified-Chinese alias lookup;
+- `0015` adds `POST /api/title-alias-import` and a Web UI paste/import dialog. Import accepts AI-returned JSON or the exported alias template, ignores `_aiPrompt`, atomically writes `aliases.json`, merges with existing non-empty aliases, reloads the alias table, and immediately rescans the library;
 - all temporary fail-closed test files/processes/listeners were removed and production remained healthy throughout.
 
 No real PS5 install was triggered during the queue/fail-closed gates; the earlier MVP real-install acceptance remains the installation-path baseline.

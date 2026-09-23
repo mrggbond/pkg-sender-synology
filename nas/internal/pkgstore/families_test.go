@@ -18,7 +18,7 @@ func TestBuildFamiliesGroupsByTitleIDAndPrefersGameTitle(t *testing.T) {
 		{
 			ID: "game", Name: "Game.pkg", RelativePath: "Game/Game.pkg", Size: 100,
 			Metadata: pkgmeta.Metadata{
-				Title: "Example Game", TitleID: "PPSA10000", Platform: "PS5",
+				Title: "範例遊戲", DisplayTitle: "Example Game", SecondaryTitle: "範例遊戲", TitleID: "PPSA10000", Platform: "PS5",
 				PackageType: "game", PackageTypeSource: "param", Version: "01.000.000",
 			},
 		},
@@ -36,7 +36,7 @@ func TestBuildFamiliesGroupsByTitleIDAndPrefersGameTitle(t *testing.T) {
 		t.Fatalf("families=%d, want 1", len(families))
 	}
 	family := families[0]
-	if family.ID != "PPSA10000" || family.TitleID != "PPSA10000" || family.Title != "Example Game" {
+	if family.ID != "PPSA10000" || family.TitleID != "PPSA10000" || family.Title != "Example Game" || family.SecondaryTitle != "範例遊戲" {
 		t.Fatalf("unexpected family identity: %+v", family)
 	}
 	if family.PackageCount != 3 || family.TotalSize != 175 {

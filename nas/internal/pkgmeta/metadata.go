@@ -21,16 +21,19 @@ const (
 )
 
 type Metadata struct {
-	Title                   string  `json:"title,omitempty"`
-	TitleID                 string  `json:"titleId,omitempty"`
-	ContentID               string  `json:"contentId,omitempty"`
-	Version                 string  `json:"version,omitempty"`
-	MasterVersion           string  `json:"masterVersion,omitempty"`
-	TargetVersion           string  `json:"targetVersion,omitempty"`
-	Platform                string  `json:"platform,omitempty"`
-	PackageType             string  `json:"packageType,omitempty"`
-	PackageTypeSource       string  `json:"packageTypeSource,omitempty"`
-	ApplicationCategoryType *uint32 `json:"applicationCategoryType,omitempty"`
+	Title                   string            `json:"title,omitempty"`
+	DisplayTitle            string            `json:"displayTitle,omitempty"`
+	SecondaryTitle          string            `json:"secondaryTitle,omitempty"`
+	LocalizedTitles         map[string]string `json:"localizedTitles,omitempty"`
+	TitleID                 string            `json:"titleId,omitempty"`
+	ContentID               string            `json:"contentId,omitempty"`
+	Version                 string            `json:"version,omitempty"`
+	MasterVersion           string            `json:"masterVersion,omitempty"`
+	TargetVersion           string            `json:"targetVersion,omitempty"`
+	Platform                string            `json:"platform,omitempty"`
+	PackageType             string            `json:"packageType,omitempty"`
+	PackageTypeSource       string            `json:"packageTypeSource,omitempty"`
+	ApplicationCategoryType *uint32           `json:"applicationCategoryType,omitempty"`
 }
 
 type entry struct {
@@ -233,6 +236,7 @@ func applyParamJSON(meta *Metadata, root map[string]json.RawMessage) {
 			if lang != "" {
 				meta.Title = localizedTitle(localized[lang])
 			}
+			meta.LocalizedTitles = localizedTitles(localized)
 			if meta.Title == "" {
 				keys := make([]string, 0, len(localized))
 				for key := range localized {
@@ -254,6 +258,81 @@ func applyParamJSON(meta *Metadata, root map[string]json.RawMessage) {
 	if meta.TitleID == "" {
 		meta.TitleID = titleIDFromContentID(meta.ContentID)
 	}
+	selectDisplayTitles(meta)
+}
+
+func localizedTitles(localized map[string]json.RawMessage) map[string]string {
+	titles := make(map[string]string)
+	for key, raw := range localized {
+		if key == "defaultLanguage" {
+			continue
+		}
+		if title := localizedTitle(raw); title != "" {
+			titles[key] = title
+		}
+	}
+	if len(titles) == 0 {
+		return nil
+	}
+	return titles
+}
+
+func selectDisplayTitles(meta *Metadata) {
+	english := firstLocalizedTitle(meta.LocalizedTitles,
+		"en-US", "en-GB", "en", "en-CA", "en-AU",
+	)
+	chinese := firstLocalizedTitle(meta.LocalizedTitles,
+		"zh-Hant", "zh-HK", "zh-TW", "zh-Hans", "zh-CN", "zh-SG", "zh",
+	)
+	japanese := firstLocalizedTitle(meta.LocalizedTitles,
+		"ja-JP", "ja",
+	)
+
+	if english != "" {
+		meta.DisplayTitle = english
+	} else {
+		meta.DisplayTitle = strings.TrimSpace(meta.Title)
+	}
+	if meta.DisplayTitle == "" && chinese != "" {
+		meta.DisplayTitle = chinese
+	}
+
+	if chinese != "" && !sameTitle(chinese, meta.DisplayTitle) {
+		meta.SecondaryTitle = chinese
+	} else if japanese != "" && !sameTitle(japanese, meta.DisplayTitle) {
+		meta.SecondaryTitle = japanese
+	}
+}
+
+func firstLocalizedTitle(titles map[string]string, preferred ...string) string {
+	if len(titles) == 0 {
+		return ""
+	}
+	for _, key := range preferred {
+		if title := strings.TrimSpace(titles[key]); title != "" {
+			return title
+		}
+	}
+	for _, preferredPrefix := range preferred {
+		prefix := strings.ToLower(preferredPrefix) + "-"
+		keys := make([]string, 0, len(titles))
+		for key := range titles {
+			if strings.HasPrefix(strings.ToLower(key), prefix) {
+				keys = append(keys, key)
+			}
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if title := strings.TrimSpace(titles[key]); title != "" {
+				return title
+			}
+		}
+	}
+	return ""
+}
+
+func sameTitle(left, right string) bool {
+	return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
 }
 
 func localizedTitle(raw json.RawMessage) string {

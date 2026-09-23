@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/Loopayeh/pkg-sender/nas/internal/discovery"
 	"github.com/Loopayeh/pkg-sender/nas/internal/history"
 	"github.com/Loopayeh/pkg-sender/nas/internal/pkgstore"
+	"github.com/Loopayeh/pkg-sender/nas/internal/ps5"
 )
 
 type fakeInstaller struct {
@@ -248,10 +250,222 @@ func TestEmbeddedWebUI(t *testing.T) {
 	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
 		t.Fatalf("UI Content-Type=%q", got)
 	}
-	for _, want := range []string{"PS5 PKG Sender", "/api/families", "/api/transfers", "/api/history", "/api/discovery", "/api/install/", "/api/retry/", "/api/cancel/", "/api/reorder/", "/icon/", "queueStatus", "queueOrder", "Retry", "Cancel", "cancelled", "Up", "Down", "pkg.contentId", "packageTypeLabel", "Recent activity", "Install outcome unverified"} {
+	for _, want := range []string{"PS5 PKG Sender", "Install packages from the NAS.", "从 NAS 安装 PKG", "languageButton", "toggleLanguage", "ps5IpInput", "savePS5", "libraryButton", "saveLibrarySettings", "/api/settings/libraries", "PKG Library paths", "PKG库路径", "status-controls", "status-word", "button.installed", "/api/settings", "/api/settings/ps5", "/api/families", "/api/transfers", "/api/history", "/api/discovery", "/api/install/", "/api/retry/", "/api/cancel/", "/api/reorder/", "/api/title-alias-export", "/api/title-alias-import", "/icon/", "queueStatus", "queueOrder", "Retry", "Cancel", "cancelled", "Up", "Down", "Copy alias AI prompt", "Import aliases", "Installed", "已安装", "exportAliasPrompt", "submitAliasImport", "aliasTemplate", "aiPrompt", "pkg.titleId", "pkg.path", "packageTypeLabel", "displayTitle", "secondaryTitle", "localizedTitleText", "Recent activity", "Install outcome unverified", "DLC", "在线", "offline"} {
 		if !bytes.Contains(body, []byte(want)) {
 			t.Fatalf("UI does not contain %q", want)
 		}
+	}
+	if bytes.Contains(body, []byte("monitor HTTP transfer progress")) {
+		t.Fatal("UI still contains removed transfer-progress subtitle wording")
+	}
+	if bytes.Contains(body, []byte("Path:")) {
+		t.Fatal("UI still contains Path prefix")
+	}
+	if bytes.Contains(body, []byte("/api/payload/pkg-receiver")) || bytes.Contains(body, []byte("sendPayload")) || bytes.Contains(body, []byte("发送 Payload")) || bytes.Contains(body, []byte("加载 Payload")) {
+		t.Fatal("UI must not expose payload sending controls")
+	}
+	if bytes.Index(body, []byte("languageButton")) < bytes.Index(body, []byte("refreshButton")) {
+		t.Fatal("language switch button should remain at the right end of the action bar")
+	}
+	if bytes.Contains(body, []byte("疑似DLC")) || bytes.Contains(body, []byte("Likely DLC")) {
+		t.Fatal("UI must not label DLC as likely/suspected")
+	}
+}
+
+func TestTitleAliasMissingAPIEmpty(t *testing.T) {
+	root := t.TempDir()
+	store, err := pkgstore.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(store, &fakeInstaller{}, "http://192.168.32.5:9898", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(app.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/title-alias-missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("title alias missing status=%d, want 200", resp.StatusCode)
+	}
+	var missing []pkgstore.MissingTitleAlias
+	if err := json.NewDecoder(resp.Body).Decode(&missing); err != nil {
+		t.Fatal(err)
+	}
+	if missing == nil || len(missing) != 0 {
+		t.Fatalf("missing aliases=%+v, want []", missing)
+	}
+
+	exportResp, err := http.Get(srv.URL + "/api/title-alias-export")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exportResp.Body.Close()
+	if exportResp.StatusCode != http.StatusOK {
+		t.Fatalf("title alias export status=%d, want 200", exportResp.StatusCode)
+	}
+	var exported pkgstore.TitleAliasExport
+	if err := json.NewDecoder(exportResp.Body).Decode(&exported); err != nil {
+		t.Fatal(err)
+	}
+	if exported.Missing == nil || len(exported.Missing) != 0 || exported.AIPrompt == "" {
+		t.Fatalf("unexpected title alias export: %+v", exported)
+	}
+	if _, ok := exported.AliasTemplate["_aiPrompt"].(string); !ok {
+		t.Fatalf("alias export template missing _aiPrompt: %+v", exported.AliasTemplate)
+	}
+}
+
+func TestSettingsAPI(t *testing.T) {
+	root := t.TempDir()
+	secondRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(secondRoot, "Library2.pkg"), []byte("pkg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := pkgstore.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installer, err := ps5.NewDynamic("192.168.1.10", 12800, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(store, installer, "http://192.168.32.5:9898", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(t.TempDir(), "config.env")
+	if err := os.WriteFile(configPath, []byte("PKGSENDER_PS5_IP=\"192.168.1.10\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app.SetConfigFile(configPath)
+	srv := httptest.NewServer(app.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("settings status=%d, want 200", resp.StatusCode)
+	}
+	var settings struct {
+		Libraries struct {
+			Paths []string `json:"paths"`
+		} `json:"libraries"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&settings); err != nil {
+		t.Fatal(err)
+	}
+	if len(settings.Libraries.Paths) != 1 || settings.Libraries.Paths[0] != filepath.Clean(root) {
+		t.Fatalf("settings libraries=%+v", settings.Libraries.Paths)
+	}
+	resp.Body.Close()
+
+	updateResp, err := http.Post(srv.URL+"/api/settings/ps5", "application/json", strings.NewReader(`{"ip":"192.168.1.11"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updateResp.StatusCode != http.StatusOK {
+		payload, _ := io.ReadAll(updateResp.Body)
+		t.Fatalf("settings update status=%d body=%s, want 200", updateResp.StatusCode, payload)
+	}
+	updateResp.Body.Close()
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `PKGSENDER_PS5_IP="192.168.1.11"`) {
+		t.Fatalf("config was not updated: %s", data)
+	}
+
+	libraryBody := `{"paths":[` + strconv.Quote(root) + `,` + strconv.Quote(secondRoot) + `]}`
+	libraryResp, err := http.Post(srv.URL+"/api/settings/libraries", "application/json", strings.NewReader(libraryBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if libraryResp.StatusCode != http.StatusOK {
+		payload, _ := io.ReadAll(libraryResp.Body)
+		t.Fatalf("library settings status=%d body=%s, want 200", libraryResp.StatusCode, payload)
+	}
+	var updatedLibraries struct {
+		Packages  int `json:"packages"`
+		Libraries struct {
+			Paths []string `json:"paths"`
+		} `json:"libraries"`
+	}
+	if err := json.NewDecoder(libraryResp.Body).Decode(&updatedLibraries); err != nil {
+		t.Fatal(err)
+	}
+	libraryResp.Body.Close()
+	if updatedLibraries.Packages != 1 || len(updatedLibraries.Libraries.Paths) != 2 {
+		t.Fatalf("library update response=%+v", updatedLibraries)
+	}
+	data, err = os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `PKGSENDER_PACKAGE_DIRS="[`) || !strings.Contains(string(data), `PKGSENDER_PACKAGE_DIR="`+filepath.Clean(root)+`"`) {
+		t.Fatalf("library config was not updated: %s", data)
+	}
+}
+
+func TestTitleAliasImportAPI(t *testing.T) {
+	root := t.TempDir()
+	store, err := pkgstore.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(store, &fakeInstaller{}, "http://192.168.32.5:9898", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliasPath := filepath.Join(t.TempDir(), "aliases.json")
+	app.SetTitleAliasesFile(aliasPath)
+	srv := httptest.NewServer(app.Handler())
+	defer srv.Close()
+
+	body := `{"_aiPrompt":"prompt text","PPSA07862":{"zh-Hans":"怪物猎人：荒野"}}`
+	resp, err := http.Post(srv.URL+"/api/title-alias-import", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		payload, _ := io.ReadAll(resp.Body)
+		t.Fatalf("title alias import status=%d body=%s, want 200", resp.StatusCode, payload)
+	}
+	var imported struct {
+		Titles    int `json:"titles"`
+		Languages int `json:"languages"`
+		Packages  int `json:"packages"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&imported); err != nil {
+		t.Fatal(err)
+	}
+	if imported.Titles != 1 || imported.Languages != 1 || imported.Packages != 0 {
+		t.Fatalf("unexpected import result: %+v", imported)
+	}
+	loaded, err := pkgstore.LoadTitleAliasesFile(aliasPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded["PPSA07862"]["zh-Hans"]; got != "怪物猎人：荒野" {
+		t.Fatalf("imported alias=%q, want 怪物猎人：荒野", got)
+	}
+
+	badResp, err := http.Post(srv.URL+"/api/title-alias-import", "application/json", strings.NewReader(`{"PPSA07862":"bad"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	badResp.Body.Close()
+	if badResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad import status=%d, want 400", badResp.StatusCode)
 	}
 }
 

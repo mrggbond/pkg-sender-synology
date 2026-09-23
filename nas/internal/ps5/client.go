@@ -12,12 +12,25 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 type Client struct {
 	baseURL string
 	http    *http.Client
+}
+
+type Target struct {
+	IP   string `json:"ip"`
+	Port int    `json:"port"`
+}
+
+type DynamicClient struct {
+	mu      sync.RWMutex
+	ip      string
+	port    int
+	timeout time.Duration
 }
 
 type installRequest struct {
@@ -32,14 +45,14 @@ type installReply struct {
 }
 
 func New(ip string, port int, timeout time.Duration) (*Client, error) {
-	parsed := net.ParseIP(strings.TrimSpace(ip))
-	if parsed == nil {
-		return nil, errors.New("PS5 IP must be a literal IPv4 or IPv6 address")
+	parsed, err := normalizeIP(ip)
+	if err != nil {
+		return nil, err
 	}
 	if port < 1 || port > 65535 {
 		return nil, errors.New("PS5 port must be between 1 and 65535")
 	}
-	hostPort := net.JoinHostPort(parsed.String(), strconv.Itoa(port))
+	hostPort := net.JoinHostPort(parsed, strconv.Itoa(port))
 	return NewWithBaseURL("http://"+hostPort, &http.Client{Timeout: timeout})
 }
 
@@ -53,6 +66,56 @@ func NewWithBaseURL(baseURL string, httpClient *http.Client) (*Client, error) {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
 	return &Client{baseURL: baseURL, http: httpClient}, nil
+}
+
+func NewDynamic(ip string, port int, timeout time.Duration) (*DynamicClient, error) {
+	parsed, err := normalizeIP(ip)
+	if err != nil {
+		return nil, err
+	}
+	if port < 1 || port > 65535 {
+		return nil, errors.New("PS5 port must be between 1 and 65535")
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	return &DynamicClient{ip: parsed, port: port, timeout: timeout}, nil
+}
+
+func normalizeIP(ip string) (string, error) {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil {
+		return "", errors.New("PS5 IP must be a literal IPv4 or IPv6 address")
+	}
+	return parsed.String(), nil
+}
+
+func (c *DynamicClient) Target() Target {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return Target{IP: c.ip, Port: c.port}
+}
+
+func (c *DynamicClient) SetIP(ip string) error {
+	parsed, err := normalizeIP(ip)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.ip = parsed
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *DynamicClient) Install(ctx context.Context, packageURL, name string) (string, error) {
+	c.mu.RLock()
+	ip, port, timeout := c.ip, c.port, c.timeout
+	c.mu.RUnlock()
+	client, err := New(ip, port, timeout)
+	if err != nil {
+		return "", err
+	}
+	return client.Install(ctx, packageURL, name)
 }
 
 func (c *Client) Install(ctx context.Context, packageURL, name string) (string, error) {
