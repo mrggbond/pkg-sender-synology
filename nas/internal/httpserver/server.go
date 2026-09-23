@@ -81,6 +81,7 @@ func (s *Server) routes() {
 	s.mux.Handle("/ui/", http.StripPrefix("/ui/", newUIHandler()))
 	s.mux.HandleFunc("/health", s.handleHealth)
 	s.mux.HandleFunc("/api/packages", s.handlePackages)
+	s.mux.HandleFunc("/api/families", s.handleFamilies)
 	s.mux.HandleFunc("/api/transfers", s.handleTransfers)
 	s.mux.HandleFunc("/api/rescan", s.handleRescan)
 	s.mux.HandleFunc("/api/install/", s.handleInstall)
@@ -103,6 +104,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		"endpoints": map[string]string{
 			"ui":        "GET /ui/",
 			"packages":  "GET /api/packages",
+			"families":  "GET /api/families",
 			"transfers": "GET /api/transfers",
 			"rescan":    "POST /api/rescan",
 			"install":   "POST /api/install/{id}",
@@ -129,6 +131,14 @@ func (s *Server) handlePackages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.store.List())
+}
+
+func (s *Server) handleFamilies(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		methodNotAllowed(w, "GET, HEAD")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.store.Families())
 }
 
 func (s *Server) handleTransfers(w http.ResponseWriter, r *http.Request) {

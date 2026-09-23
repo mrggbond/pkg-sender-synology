@@ -10,13 +10,14 @@ MVP scope:
 4. call the PS5 receiver at `POST http://<ps5>:12800/api/install`;
 5. let the PS5 pull the PKG directly from the NAS.
 
-Not included yet: covers, Game/Patch/DLC family grouping, UDP discovery, persistent queue/history, image/folder copy, PS4/GoldHEN support.
+Not included yet: covers, UDP discovery, persistent queue/history, image/folder copy, PS4/GoldHEN support.
 
 ## API
 
 - `GET /health`
 - `GET /ui/`
 - `GET /api/packages`
+- `GET /api/families`
 - `GET /api/transfers`
 - `POST /api/rescan`
 - `POST /api/install/{id}`
@@ -32,11 +33,20 @@ Metadata parsing is best-effort. A malformed, encrypted, or unsupported metadata
 
 Package type values are `game`, `patch`, `dlc`, `app`, or `unknown`. Patch classification uses structural/target-version signals. DLC classification may currently use the upstream-compatible title/content-id/filename heuristic and is explicitly marked with `packageTypeSource=heuristic`.
 
+## Game families
+
+`GET /api/families` groups the current scan by normalized `titleId`. A family contains its title, aggregate size, package count, and the concrete packages that can still be installed independently by package ID.
+
+Within a family, packages are ordered as Game → Patch → DLC → App → Unknown; patch versions are ordered newest first. The family title prefers the parsed Game title, so DLC or patch labels do not replace the base game's display name.
+
+Packages without a Title ID are never dropped or combined arbitrarily: each receives its own fallback family keyed by its opaque package ID. Family grouping is derived in memory from the current scan and does not add a database.
+
 ## Web UI
 
 Open `http://NAS_IP:9898/ui/` in a browser. The embedded UI has no third-party runtime dependencies and provides:
 
-- PKG library listing and filtering;
+- Title-ID family grouping with nested Game/Patch/DLC package rows;
+- PKG metadata listing and filtering;
 - manual library rescan;
 - an Install action with confirmation;
 - live in-memory transfer status and byte-accurate percentage polling once per second.

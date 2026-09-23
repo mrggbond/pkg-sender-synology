@@ -198,10 +198,49 @@ func TestEmbeddedWebUI(t *testing.T) {
 	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
 		t.Fatalf("UI Content-Type=%q", got)
 	}
-	for _, want := range []string{"PS5 PKG Sender", "/api/packages", "/api/transfers", "/api/install/", "pkg.contentId", "packageTypeLabel"} {
+	for _, want := range []string{"PS5 PKG Sender", "/api/families", "/api/transfers", "/api/install/", "pkg.contentId", "packageTypeLabel"} {
 		if !bytes.Contains(body, []byte(want)) {
 			t.Fatalf("UI does not contain %q", want)
 		}
+	}
+}
+
+func TestFamiliesAPIKeepsUnknownPackagesVisible(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Game.pkg"), []byte("not-a-real-pkg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := pkgstore.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Scan(); err != nil {
+		t.Fatal(err)
+	}
+	app, err := New(store, &fakeInstaller{}, "http://192.168.1.20:9898", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(app.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/families")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("families status=%d, want 200", resp.StatusCode)
+	}
+	var families []pkgstore.Family
+	if err := json.NewDecoder(resp.Body).Decode(&families); err != nil {
+		t.Fatal(err)
+	}
+	if len(families) != 1 || families[0].PackageCount != 1 || len(families[0].Packages) != 1 {
+		t.Fatalf("unexpected fallback families: %+v", families)
+	}
+	if families[0].Packages[0].Name != "Game.pkg" {
+		t.Fatalf("fallback package disappeared: %+v", families[0])
 	}
 }
 
