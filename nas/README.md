@@ -10,7 +10,7 @@ MVP scope:
 4. call the PS5 receiver at `POST http://<ps5>:12800/api/install`;
 5. let the PS5 pull the PKG directly from the NAS.
 
-Not included yet: covers, UDP discovery, persistent queue/history, image/folder copy, PS4/GoldHEN support.
+Not included yet: UDP discovery, persistent queue/history, image/folder copy, PS4/GoldHEN support.
 
 ## API
 
@@ -22,6 +22,7 @@ Not included yet: covers, UDP discovery, persistent queue/history, image/folder 
 - `POST /api/rescan`
 - `POST /api/install/{id}`
 - `GET|HEAD /pkg/{id}`
+- `GET|HEAD /icon/{id}`
 
 The package API returns stable SHA-256 IDs derived from relative paths. Absolute NAS paths are never accepted from HTTP requests.
 
@@ -40,6 +41,12 @@ Package type values are `game`, `patch`, `dlc`, `app`, or `unknown`. Patch class
 Within a family, packages are ordered as Game → Patch → DLC → App → Unknown; patch versions are ordered newest first. The family title prefers the parsed Game title, so DLC or patch labels do not replace the base game's display name.
 
 Packages without a Title ID are never dropped or combined arbitrarily: each receives its own fallback family keyed by its opaque package ID. Family grouping is derived in memory from the current scan and does not add a database.
+
+## Local covers
+
+`GET|HEAD /icon/{id}` reads a bounded PNG icon directly from the selected PKG. The reader accepts only unencrypted exact icon entries (`0x1200`) or icon variants (`0x1201–0x1220`), validates the PNG signature, and caps a single icon read at 8 MiB.
+
+The family UI uses the base Game package icon as its cover. It intentionally does not promote patch/DLC icons to the family cover because those packages may contain generic or unrelated artwork. Missing icons fall back to a local placeholder and never affect scanning or installation.
 
 ## Web UI
 

@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/Loopayeh/pkg-sender/nas/internal/pkgmeta"
 	"github.com/Loopayeh/pkg-sender/nas/internal/pkgstore"
 )
 
@@ -85,6 +87,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/transfers", s.handleTransfers)
 	s.mux.HandleFunc("/api/rescan", s.handleRescan)
 	s.mux.HandleFunc("/api/install/", s.handleInstall)
+	s.mux.HandleFunc("/icon/", s.handleIcon)
 	s.mux.HandleFunc("/pkg/", s.handlePackage)
 }
 
@@ -108,6 +111,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 			"transfers": "GET /api/transfers",
 			"rescan":    "POST /api/rescan",
 			"install":   "POST /api/install/{id}",
+			"icon":      "GET|HEAD /icon/{id}",
 			"package":   "GET|HEAD /pkg/{id}",
 			"health":    "GET /health",
 		},
@@ -162,6 +166,34 @@ func (s *Server) handleRescan(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Printf("library rescanned: %d pkg file(s)", count)
 	writeJSON(w, http.StatusOK, map[string]any{"packages": count})
+}
+
+func (s *Server) handleIcon(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		methodNotAllowed(w, "GET, HEAD")
+		return
+	}
+
+	id, ok := routeID(r.URL.Path, "/icon/")
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	pkg, filePath, modTime, ok := s.store.Get(id)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	icon, err := pkgmeta.ReadIconFile(filePath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, pkg.ID+".png", modTime, bytes.NewReader(icon))
 }
 
 func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request) {

@@ -19,14 +19,14 @@
     .statusdot{width:8px;height:8px;border-radius:50%;background:#5f6a76;flex:0 0 auto}.statusdot.ok{background:#63d297}.statusdot.error{background:#ff6b75}
     .toolbar{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}.count{color:#7f8b99;font-size:13px}
     .search{width:min(360px,60vw);border:1px solid #252b33;background:#11151a;color:#f2f4f7;border-radius:9px;padding:10px 12px;outline:none}.search:focus{border-color:#596676}
-    .grid{display:grid;gap:16px}.family-card{border:1px solid #222933;background:#101419;border-radius:13px;overflow:hidden}.family-head{padding:18px 18px 15px;background:#12171d;border-bottom:1px solid #222933}.family-title{font-size:19px;font-weight:760;line-height:1.3;margin-bottom:7px;overflow-wrap:anywhere}.package-list{display:grid}.package-row{padding:15px 18px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:center;border-top:1px solid #1e252d}.package-row:first-child{border-top:0}.package-top{display:flex;gap:9px;align-items:center;margin-bottom:7px}.package-name{font-size:14px;font-weight:650;overflow-wrap:anywhere}.name{font-size:15px;font-weight:720;line-height:1.35;overflow-wrap:anywhere;margin-bottom:5px}.path{color:#7f8b99;font-size:12px;line-height:1.45;overflow-wrap:anywhere;margin-bottom:11px}.path.compact{margin:7px 0 0}
+    .grid{display:grid;gap:16px}.family-card{border:1px solid #222933;background:#101419;border-radius:13px;overflow:hidden}.family-head{padding:18px;background:#12171d;border-bottom:1px solid #222933;display:grid;grid-template-columns:88px minmax(0,1fr);gap:16px;align-items:center}.cover{width:88px;height:88px;border-radius:11px;border:1px solid #2a323c;background:#181e25;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#606c79;font-size:11px;font-weight:750;letter-spacing:.08em}.cover img{width:100%;height:100%;object-fit:cover;display:block}.family-title{font-size:19px;font-weight:760;line-height:1.3;margin-bottom:7px;overflow-wrap:anywhere}.package-list{display:grid}.package-row{padding:15px 18px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:center;border-top:1px solid #1e252d}.package-row:first-child{border-top:0}.package-top{display:flex;gap:9px;align-items:center;margin-bottom:7px}.package-name{font-size:14px;font-weight:650;overflow-wrap:anywhere}.name{font-size:15px;font-weight:720;line-height:1.35;overflow-wrap:anywhere;margin-bottom:5px}.path{color:#7f8b99;font-size:12px;line-height:1.45;overflow-wrap:anywhere;margin-bottom:11px}.path.compact{margin:7px 0 0}
     .meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;color:#9aa5b1;font-size:12px}.chip{border:1px solid #303844;background:#171c22;border-radius:999px;padding:3px 8px;color:#c4ccd6}.muted{color:#697481}.progress-wrap{margin-top:14px;display:none}.progress-wrap.visible{display:block}
     .progress-head{display:flex;justify-content:space-between;gap:12px;font-size:12px;margin-bottom:7px}.progress-label{color:#c6ced8;font-weight:650}.progress-bytes{color:#7f8b99;font-variant-numeric:tabular-nums}
     .track{height:6px;border-radius:999px;background:#242b34;overflow:hidden}.fill{height:100%;width:0;background:#73a7ff;transition:width .25s ease}.fill.complete{background:#63d297}.fill.error{background:#ff6b75}
     .empty{border:1px dashed #2a313a;border-radius:12px;padding:34px 20px;text-align:center;color:#7f8b99}
     .toast{position:fixed;right:20px;bottom:20px;max-width:min(420px,calc(100vw - 40px));background:#171c23;color:#eef2f6;border:1px solid #303845;border-radius:10px;padding:12px 14px;box-shadow:0 14px 44px rgba(0,0,0,.35);opacity:0;pointer-events:none;transform:translateY(8px);transition:.18s ease;font-size:13px}
     .toast.visible{opacity:1;transform:translateY(0)}.toast.error{border-color:#63343a}
-    @media(max-width:700px){.shell{padding:24px 14px 48px}.topbar{flex-direction:column}.actions{justify-content:flex-start}.toolbar{align-items:stretch;flex-direction:column-reverse}.search{width:100%}.package-row{grid-template-columns:1fr}.package-row>.button{width:100%}}
+    @media(max-width:700px){.shell{padding:24px 14px 48px}.topbar{flex-direction:column}.actions{justify-content:flex-start}.toolbar{align-items:stretch;flex-direction:column-reverse}.search{width:100%}.family-head{grid-template-columns:68px minmax(0,1fr);gap:12px}.cover{width:68px;height:68px}.package-row{grid-template-columns:1fr}.package-row>.button{width:100%}}
   </style>
 </head>
 <body>
@@ -93,6 +93,15 @@
       button.addEventListener("click",()=>installPackage(pkg));
       row.append(content,button);return row;
     }
+    function renderCover(family){
+      const cover=document.createElement("div");cover.className="cover";cover.textContent="PS5";
+      const source=(family.packages||[]).find(pkg=>pkg.packageType==="game");
+      if(!source)return cover;
+      const img=document.createElement("img");img.alt="";img.loading="lazy";img.src="/icon/"+encodeURIComponent(source.id);
+      cover.textContent="";cover.appendChild(img);
+      img.addEventListener("error",()=>{img.remove();cover.textContent="PS5"},{once:true});
+      return cover;
+    }
     function render(){
       const families=filteredFamilies();
       const packageCount=state.families.reduce((sum,family)=>sum+(family.packageCount||0),0);
@@ -107,7 +116,7 @@
         const meta=document.createElement("div");meta.className="meta";
         if(family.titleId){const tid=document.createElement("span");tid.className="chip";tid.textContent=family.titleId;meta.appendChild(tid)}
         const packageCount=document.createElement("span");packageCount.textContent=family.packageCount+(family.packageCount===1?" package":" packages");
-        const size=document.createElement("span");size.textContent=formatBytes(family.totalSize);meta.append(packageCount,size);identity.append(title,meta);head.appendChild(identity);card.appendChild(head);
+        const size=document.createElement("span");size.textContent=formatBytes(family.totalSize);meta.append(packageCount,size);identity.append(title,meta);head.append(renderCover(family),identity);card.appendChild(head);
         const list=document.createElement("div");list.className="package-list";
         for(const pkg of family.visiblePackages)list.appendChild(renderPackage(pkg));
         card.appendChild(list);els.grid.appendChild(card);

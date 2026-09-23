@@ -1,6 +1,7 @@
 package pkgmeta
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ const (
 	entrySize     = 0x20
 	maxEntries    = 0x10000
 	maxParamSize  = 2 * 1024 * 1024
+	maxIconSize   = 8 * 1024 * 1024
 )
 
 type Metadata struct {
@@ -38,6 +40,12 @@ type entry struct {
 	dataSize uint32
 }
 
+type cntImage struct {
+	base    int64
+	header  []byte
+	entries []entry
+}
+
 func ReadFile(path string) (Metadata, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -55,69 +63,39 @@ func ReadFile(path string) (Metadata, error) {
 	return Read(f, info.Size(), info.Name())
 }
 
+func ReadIconFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	return ReadIcon(f, info.Size())
+}
+
 func Read(r io.ReaderAt, size int64, filename string) (Metadata, error) {
-	if r == nil || size < cntHeaderSize {
-		return Metadata{}, errors.New("file too small for CNT header")
-	}
-
-	first, err := readAt(r, 0, 0x60, size)
+	cnt, err := parseContainer(r, size)
 	if err != nil {
 		return Metadata{}, err
 	}
-
-	var cntBase int64
-	switch string(first[:4]) {
-	case "\x7fCNT":
-		cntBase = 0
-	case "\x7fFIH":
-		embedded := binary.LittleEndian.Uint64(first[0x58:0x60])
-		if embedded == 0 || embedded > uint64(size-cntHeaderSize) {
-			return Metadata{}, errors.New("invalid embedded CNT offset")
-		}
-		cntBase = int64(embedded)
-	default:
-		return Metadata{}, fmt.Errorf("unsupported package magic %x", first[:4])
-	}
-
-	header, err := readAt(r, cntBase, cntHeaderSize, size)
-	if err != nil {
-		return Metadata{}, err
-	}
-	if string(header[:4]) != "\x7fCNT" {
-		return Metadata{}, errors.New("embedded CNT header not found")
-	}
-
-	count := binary.BigEndian.Uint32(header[0x10:0x14])
-	tableOff := binary.BigEndian.Uint32(header[0x18:0x1c])
-	if count == 0 || count > maxEntries {
-		return Metadata{}, fmt.Errorf("invalid CNT entry count %d", count)
-	}
-	tableSize := int64(count) * entrySize
-	table, err := readAt(r, cntBase+int64(tableOff), tableSize, size)
-	if err != nil {
-		return Metadata{}, fmt.Errorf("read CNT entry table: %w", err)
-	}
-
-	entries := make([]entry, 0, count)
-	for i := uint32(0); i < count; i++ {
-		o := int(i) * entrySize
-		entries = append(entries, entry{
-			id:       binary.BigEndian.Uint32(table[o : o+4]),
-			flags:    binary.BigEndian.Uint32(table[o+8 : o+12]),
-			dataOff:  binary.BigEndian.Uint32(table[o+0x10 : o+0x14]),
-			dataSize: binary.BigEndian.Uint32(table[o+0x14 : o+0x18]),
-		})
-	}
+	entries := cnt.entries
 
 	meta := Metadata{
-		ContentID: readASCII(header[0x40:0x70]),
+		ContentID: readASCII(cnt.header[0x40:0x70]),
 		Platform:  "PS5",
 	}
 	meta.TitleID = titleIDFromContentID(meta.ContentID)
 
 	var param map[string]json.RawMessage
 	if p, ok := findReadableEntry(entries, 0x2000); ok && p.dataSize <= maxParamSize {
-		data, readErr := readAt(r, cntBase+int64(p.dataOff), int64(p.dataSize), size)
+		data, readErr := readAt(r, cnt.base+int64(p.dataOff), int64(p.dataSize), size)
 		if readErr == nil && json.Unmarshal(data, &param) == nil {
 			applyParamJSON(&meta, param)
 		}
@@ -132,6 +110,99 @@ func Read(r io.ReaderAt, size int64, filename string) (Metadata, error) {
 		return Metadata{}, errors.New("package metadata not found")
 	}
 	return meta, nil
+}
+
+func ReadIcon(r io.ReaderAt, size int64) ([]byte, error) {
+	cnt, err := parseContainer(r, size)
+	if err != nil {
+		return nil, err
+	}
+
+	try := func(e entry) ([]byte, bool) {
+		if e.flags&0x80000000 != 0 || e.dataSize == 0 || e.dataSize > maxIconSize {
+			return nil, false
+		}
+		data, readErr := readAt(r, cnt.base+int64(e.dataOff), int64(e.dataSize), size)
+		if readErr != nil || !isPNG(data) {
+			return nil, false
+		}
+		return data, true
+	}
+
+	for _, e := range cnt.entries {
+		if e.id == 0x1200 {
+			if data, ok := try(e); ok {
+				return data, nil
+			}
+		}
+	}
+	for _, e := range cnt.entries {
+		if e.id >= 0x1201 && e.id <= 0x1220 {
+			if data, ok := try(e); ok {
+				return data, nil
+			}
+		}
+	}
+	return nil, errors.New("package icon not found")
+}
+
+func parseContainer(r io.ReaderAt, size int64) (cntImage, error) {
+	if r == nil || size < cntHeaderSize {
+		return cntImage{}, errors.New("file too small for CNT header")
+	}
+	first, err := readAt(r, 0, 0x60, size)
+	if err != nil {
+		return cntImage{}, err
+	}
+
+	var cntBase int64
+	switch string(first[:4]) {
+	case "\x7fCNT":
+		cntBase = 0
+	case "\x7fFIH":
+		embedded := binary.LittleEndian.Uint64(first[0x58:0x60])
+		if embedded == 0 || embedded > uint64(size-cntHeaderSize) {
+			return cntImage{}, errors.New("invalid embedded CNT offset")
+		}
+		cntBase = int64(embedded)
+	default:
+		return cntImage{}, fmt.Errorf("unsupported package magic %x", first[:4])
+	}
+
+	header, err := readAt(r, cntBase, cntHeaderSize, size)
+	if err != nil {
+		return cntImage{}, err
+	}
+	if string(header[:4]) != "\x7fCNT" {
+		return cntImage{}, errors.New("embedded CNT header not found")
+	}
+
+	count := binary.BigEndian.Uint32(header[0x10:0x14])
+	tableOff := binary.BigEndian.Uint32(header[0x18:0x1c])
+	if count == 0 || count > maxEntries {
+		return cntImage{}, fmt.Errorf("invalid CNT entry count %d", count)
+	}
+	tableSize := int64(count) * entrySize
+	table, err := readAt(r, cntBase+int64(tableOff), tableSize, size)
+	if err != nil {
+		return cntImage{}, fmt.Errorf("read CNT entry table: %w", err)
+	}
+
+	entries := make([]entry, 0, count)
+	for i := uint32(0); i < count; i++ {
+		o := int(i) * entrySize
+		entries = append(entries, entry{
+			id:       binary.BigEndian.Uint32(table[o : o+4]),
+			flags:    binary.BigEndian.Uint32(table[o+8 : o+12]),
+			dataOff:  binary.BigEndian.Uint32(table[o+0x10 : o+0x14]),
+			dataSize: binary.BigEndian.Uint32(table[o+0x14 : o+0x18]),
+		})
+	}
+	return cntImage{base: cntBase, header: header, entries: entries}, nil
+}
+
+func isPNG(data []byte) bool {
+	return len(data) >= 8 && bytes.Equal(data[:8], []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'})
 }
 
 func applyParamJSON(meta *Metadata, root map[string]json.RawMessage) {

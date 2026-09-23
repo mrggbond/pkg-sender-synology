@@ -3,6 +3,7 @@ package httpserver
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"log"
@@ -198,7 +199,7 @@ func TestEmbeddedWebUI(t *testing.T) {
 	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
 		t.Fatalf("UI Content-Type=%q", got)
 	}
-	for _, want := range []string{"PS5 PKG Sender", "/api/families", "/api/transfers", "/api/install/", "pkg.contentId", "packageTypeLabel"} {
+	for _, want := range []string{"PS5 PKG Sender", "/api/families", "/api/transfers", "/api/install/", "/icon/", "pkg.contentId", "packageTypeLabel"} {
 		if !bytes.Contains(body, []byte(want)) {
 			t.Fatalf("UI does not contain %q", want)
 		}
@@ -242,6 +243,106 @@ func TestFamiliesAPIKeepsUnknownPackagesVisible(t *testing.T) {
 	if families[0].Packages[0].Name != "Game.pkg" {
 		t.Fatalf("fallback package disappeared: %+v", families[0])
 	}
+}
+
+func TestIconEndpointServesPNGForGETAndHEAD(t *testing.T) {
+	root := t.TempDir()
+	png := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, []byte("fixture-icon")...)
+	pkgPath := filepath.Join(root, "Game.pkg")
+	if err := os.WriteFile(pkgPath, buildIconPackageFixture(png), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := pkgstore.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Scan(); err != nil {
+		t.Fatal(err)
+	}
+	packages := store.List()
+	if len(packages) != 1 {
+		t.Fatalf("packages=%d, want 1", len(packages))
+	}
+
+	app, err := New(store, &fakeInstaller{}, "http://192.168.1.20:9898", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/icon/"+packages[0].ID, nil)
+	getRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GET icon status=%d, want 200", getRec.Code)
+	}
+	if got := getRec.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("GET icon Content-Type=%q", got)
+	}
+	if got := getRec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("GET icon X-Content-Type-Options=%q", got)
+	}
+	if !bytes.Equal(getRec.Body.Bytes(), png) {
+		t.Fatalf("GET icon body=%x, want %x", getRec.Body.Bytes(), png)
+	}
+
+	headReq := httptest.NewRequest(http.MethodHead, "/icon/"+packages[0].ID, nil)
+	headRec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(headRec, headReq)
+	if headRec.Code != http.StatusOK {
+		t.Fatalf("HEAD icon status=%d, want 200", headRec.Code)
+	}
+	if headRec.Body.Len() != 0 {
+		t.Fatalf("HEAD icon body len=%d, want 0", headRec.Body.Len())
+	}
+	if got := headRec.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("HEAD icon Content-Type=%q", got)
+	}
+}
+
+func TestIconEndpointReturnsNotFoundWhenPackageHasNoPNGIcon(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Game.pkg"), []byte("not-a-real-pkg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := pkgstore.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Scan(); err != nil {
+		t.Fatal(err)
+	}
+	pkg := store.List()[0]
+	app, err := New(store, &fakeInstaller{}, "http://192.168.1.20:9898", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/icon/"+pkg.ID, nil)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("icon status=%d, want 404", rec.Code)
+	}
+}
+
+func buildIconPackageFixture(png []byte) []byte {
+	const (
+		tableOff = 0x600
+		dataOff  = 0x800
+	)
+	out := make([]byte, dataOff+len(png)+0x20)
+	copy(out[:4], []byte{0x7f, 'C', 'N', 'T'})
+	binary.BigEndian.PutUint32(out[0x10:0x14], 1)
+	binary.BigEndian.PutUint32(out[0x18:0x1c], tableOff)
+	copy(out[0x40:0x70], []byte("UP0001-PPSA12345_00-ICONFIXTURE000001"))
+
+	binary.BigEndian.PutUint32(out[tableOff:tableOff+4], 0x1200)
+	binary.BigEndian.PutUint32(out[tableOff+0x10:tableOff+0x14], dataOff)
+	binary.BigEndian.PutUint32(out[tableOff+0x14:tableOff+0x18], uint32(len(png)))
+	copy(out[dataOff:], png)
+
+	return out
 }
 
 func TestLargePackageRangeUses64BitOffsets(t *testing.T) {

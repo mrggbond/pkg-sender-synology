@@ -8,8 +8,9 @@ import (
 )
 
 type fixtureEntry struct {
-	id   uint32
-	data []byte
+	id    uint32
+	flags uint32
+	data  []byte
 }
 
 func TestReadPS5FIHMetadata(t *testing.T) {
@@ -90,6 +91,47 @@ func TestReadDLCHeuristicWithoutParamJSON(t *testing.T) {
 	}
 }
 
+func TestReadIconPrefersExactIconEntry(t *testing.T) {
+	exact := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, []byte("exact")...)
+	variant := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, []byte("variant")...)
+	data := buildFixture(t, true, "UP0001-PPSA11111_00-ICONTEST00000001", []fixtureEntry{
+		{id: 0x1201, data: variant},
+		{id: 0x1200, data: exact},
+	})
+	icon, err := ReadIcon(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(icon, exact) {
+		t.Fatalf("icon=%q, want exact icon", icon)
+	}
+}
+
+func TestReadIconSkipsEncryptedExactAndUsesVariant(t *testing.T) {
+	encrypted := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, []byte("encrypted")...)
+	variant := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, []byte("variant")...)
+	data := buildFixture(t, false, "UP0001-PPSA11112_00-ICONTEST00000002", []fixtureEntry{
+		{id: 0x1200, flags: 0x80000000, data: encrypted},
+		{id: 0x1201, data: variant},
+	})
+	icon, err := ReadIcon(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(icon, variant) {
+		t.Fatalf("icon=%q, want variant icon", icon)
+	}
+}
+
+func TestReadIconRejectsInvalidPNG(t *testing.T) {
+	data := buildFixture(t, false, "UP0001-PPSA11113_00-ICONTEST00000003", []fixtureEntry{
+		{id: 0x1200, data: []byte("not-a-png")},
+	})
+	if _, err := ReadIcon(bytes.NewReader(data), int64(len(data))); err == nil {
+		t.Fatal("expected invalid icon to be rejected")
+	}
+}
+
 func TestReadInvalidFileFails(t *testing.T) {
 	data := make([]byte, 0x600)
 	if _, err := Read(bytes.NewReader(data), int64(len(data)), "bad.pkg"); err == nil {
@@ -128,6 +170,7 @@ func buildFixture(t *testing.T, fih bool, contentID string, entries []fixtureEnt
 	for i, e := range entries {
 		o := cntBase + tableOff + i*entrySize
 		binary.BigEndian.PutUint32(out[o:o+4], e.id)
+		binary.BigEndian.PutUint32(out[o+8:o+12], e.flags)
 		binary.BigEndian.PutUint32(out[o+0x10:o+0x14], uint32(nextData))
 		binary.BigEndian.PutUint32(out[o+0x14:o+0x18], uint32(len(e.data)))
 		copy(out[cntBase+nextData:], e.data)
