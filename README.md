@@ -1,5 +1,7 @@
 # PKG Sender for Synology
 
+[中文说明](README.zh-CN.md)
+
 A Synology NAS / DSM SPK focused fork of [`Loopayeh/pkg-sender`](https://github.com/Loopayeh/pkg-sender).
 
 This fork packages a lightweight Go-based NAS service that lets a PS5 running `pkg-receiver.elf` pull PKG files directly from a Synology NAS over the local network. It is intended for trusted LAN use.

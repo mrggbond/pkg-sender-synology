@@ -1,5 +1,7 @@
 # Release Notes
 
+[中文发布说明](RELEASE_NOTES.zh-CN.md)
+
 ## 0.1.0-0021 - Synology NAS/SPK MVP
 
 This release packages the Synology NAS implementation as a DSM 7 SPK and validates it on a DS1517+ x86_64 target.
@@ -31,6 +33,21 @@ This release packages the Synology NAS implementation as a DSM 7 SPK and validat
 - Synology DSM 7.2.2
 - DS1517+ / x86_64
 - SPK: `PKGSenderNAS-0.1.0-0021-x86_64.spk`
+- ARMv8 SPK was cross-built and structurally verified: `PKGSenderNAS-0.1.0-0021-armv8.spk`
+
+### Release assets
+
+- `PKGSenderNAS-0.1.0-0021-x86_64.spk`
+- `PKGSenderNAS-0.1.0-0021-armv8.spk`
+- `pkg-receiver.elf`
+
+### SHA256
+
+```text
+277626ae1a6715c729a187e3d5102032eb4a1cc93c892f00710863bda66c7c33  PKGSenderNAS-0.1.0-0021-x86_64.spk
+d946c43e6b12c6945f41e3008159acee5d232f10b06e7d8b67b940ff5488569a  PKGSenderNAS-0.1.0-0021-armv8.spk
+f281fde2d62353cfd0b263b48815bdae64bc2527d5ded2e2ff9956d9c87b1cb2  pkg-receiver.elf
+```
 
 ### Validation summary
 
@@ -39,5 +56,6 @@ This release packages the Synology NAS implementation as a DSM 7 SPK and validat
 - Web UI JavaScript parse gate
 - `git diff --check`
 - SPK x86_64 build and structure verification
+- SPK armv8 build and structure verification
 - In-place NAS upgrade to `0.1.0-0021`
 - Health/API/UI checks after deployment

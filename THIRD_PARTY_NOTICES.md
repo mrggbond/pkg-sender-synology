@@ -1,5 +1,7 @@
 # Third-Party Notices
 
+[中文第三方声明](THIRD_PARTY_NOTICES.zh-CN.md)
+
 This repository is a fork of and is based on the upstream project:
 
 - Project: `Loopayeh/pkg-sender`
