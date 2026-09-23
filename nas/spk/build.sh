@@ -4,7 +4,7 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 NAS_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
 OUT_DIR="${OUT_DIR:-${SCRIPT_DIR}/dist}"
-VERSION="${VERSION:-0.1.0-0004}"
+VERSION="${VERSION:-0.1.0-0011}"
 ARCH="${ARCH:-x86_64}"
 GO_BIN="${GO_BIN:-go}"
 

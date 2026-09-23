@@ -10,7 +10,7 @@ MVP scope:
 4. call the PS5 receiver at `POST http://<ps5>:12800/api/install`;
 5. let the PS5 pull the PKG directly from the NAS.
 
-Not included yet: persistent queue/history, image/folder copy, PS4/GoldHEN support.
+Not included yet: automatic retry, image/folder copy, PS4/GoldHEN support.
 
 ## API
 
@@ -19,9 +19,13 @@ Not included yet: persistent queue/history, image/folder copy, PS4/GoldHEN suppo
 - `GET /api/packages`
 - `GET /api/families`
 - `GET /api/transfers`
+- `GET /api/history`
 - `GET /api/discovery`
 - `POST /api/rescan`
 - `POST /api/install/{id}`
+- `POST /api/retry/{historyId}`
+- `POST /api/cancel/{historyId}`
+- `POST /api/reorder/{historyId}`
 - `GET|HEAD /pkg/{id}`
 - `GET|HEAD /icon/{id}`
 
@@ -65,7 +69,9 @@ Open `http://NAS_IP:9898/ui/` in a browser. The embedded UI has no third-party r
 - PKG metadata listing and filtering;
 - manual library rescan;
 - an Install action with confirmation;
+- a persistent FIFO install queue with explicit manual Retry for failed/interrupted attempts and Cancel for records that are still queued;
 - live in-memory transfer status and byte-accurate percentage polling once per second.
+- recent persistent install/transfer history with receiver, transfer, and install-outcome semantics kept separate.
 - passive PS5 receiver discovery status from UDP `12801`.
 
 The UI uses the existing same-origin JSON API and does not add a second listening port.
@@ -82,6 +88,7 @@ Optional:
 - `PKGSENDER_PACKAGE_DIR` (default `/packages`)
 - `PKGSENDER_LISTEN` (default `:9898`)
 - `PKGSENDER_PS5_PORT` (default `12800`)
+- `PKGSENDER_HISTORY_FILE`: JSON persistence path for recent install history and queue state. If unset, the queue is explicitly memory-only. Native SPK sets this automatically to its package app-data directory. If a configured file cannot be opened or decoded, browsing/Range/health remain available but new install/retry requests fail closed with HTTP 503 rather than silently degrading to a volatile queue.
 
 ## Synology Container Manager
 
@@ -105,7 +112,7 @@ A native DSM 7 SPK build is available under `spk/`. It packages the same Go serv
 
 The Docker and native package variants both use port 9898 by default. Do not start both at the same time.
 
-Real-hardware native-package and discovery acceptance has passed on DSM 7.2.2 / DS1517+ with SPK `0.1.0-0004`: the service runs under the DSM package identity, survives package upgrades/restarts, scans the existing 5-PKG library, serves covers, preserves byte-range behavior, and continuously receives the configured PS5's UDP `12801` beacon. The Web UI reports `beacon online`. The previous Docker container is retained in stopped state as a rollback path.
+Real-hardware acceptance on DSM 7.2.2 / DS1517+ is current through SPK `0.1.0-0011`. The full FIFO behavior was exercised with the `0007` binary using localhost-only sender/receiver endpoints: first-active/second-queued serialization, restart conversion of an accepted active record to `interrupted` without replay, automatic resume of a still-queued record, explicit Retry creating a new `retryOf` record, FIFO release only after a complete HTTP transfer, and `0600` package-owned persistence all passed. `0008` added corrupt-persistence fail-closed behavior; `0009` added fail-closed in-memory rollback and FIFO position display. `0010` passed queued-only cancellation. `0011` passed an in-place production upgrade and an isolated reordering gate: A was active while B/C were queued, C was moved above B without contacting the receiver, completing A released the FIFO slot, and the second fake-receiver install request was `C.pkg`; the temporary queue file remained `PKGSenderNAS:PKGSenderNAS` mode `0600` and all test processes/files/listeners were removed. Production remains healthy with 5 PKGs, PS5 beacon online, `/api/history` equal to `[]`, Range 206, and the previous Docker container stopped as a rollback path.
 
 ## Smoke test
 
@@ -123,6 +130,12 @@ curl http://NAS_IP:9898/api/discovery
 
 On validated native SPK hardware, the configured receiver appears with `configured=true` and `online=true` while `pkg-receiver.elf` is broadcasting.
 
+Check recent install history:
+
+```sh
+curl http://NAS_IP:9898/api/history
+```
+
 Take one `id` and validate HEAD:
 
 ```sh
@@ -137,13 +150,13 @@ curl -v -H 'Range: bytes=0-1023' http://NAS_IP:9898/pkg/ID -o /dev/null
 
 Expected response: `206 Partial Content`, `Content-Range`, and `Accept-Ranges: bytes`.
 
-Queue installation on the PS5:
+Enqueue installation for the PS5:
 
 ```sh
 curl -X POST http://NAS_IP:9898/api/install/ID
 ```
 
-A successful NAS-side response means the receiver accepted the install request. Real-hardware MVP acceptance has passed: the PS5 accepted the request, pulled the PKG from the Synology NAS, completed installation, and the installed game launched successfully.
+`POST /api/install/{id}` returns `202 Accepted` after the NAS has accepted the request into its queue. When `PKGSENDER_HISTORY_FILE` is configured and healthy (the native-SPK default), the enqueue is persisted before the response; when the setting is intentionally omitted, the queue is memory-only. A configured-but-unavailable persistence store returns `503 Service Unavailable` and never contacts the receiver. A 202 does not mean the receiver has accepted the request yet. Receiver submission and HTTP transfer progress appear asynchronously in `GET /api/history`. The earlier real-hardware MVP acceptance remains valid: the PS5 accepted a request, pulled the PKG from the Synology NAS, completed installation, and the installed game launched successfully.
 
 ## Transfer logging
 
@@ -159,7 +172,7 @@ With Synology Docker bridge port mapping, the container may see the bridge gatew
 
 ## Transfer progress
 
-`POST /api/install/{id}` creates or resets an in-memory transfer session for that package. Successful `GET /pkg/{id}` responses are merged as byte intervals, so duplicate, overlapping, retried, or concurrent Range requests do not inflate progress.
+When the queue worker begins submitting a task to the receiver, it creates or resets the in-memory transfer session for that package. Successful `GET /pkg/{id}` responses are merged as byte intervals, so duplicate, overlapping, retried, or concurrent Range requests do not inflate progress.
 
 `GET /api/transfers` returns the current sessions, for example:
 
@@ -182,7 +195,32 @@ With Synology Docker bridge port mapping, the container may see the bridge gatew
 
 Statuses are `requesting`, `queued`, `downloading`, `complete`, or `error`. `complete` means the HTTP byte coverage reached the PKG size; it does not independently prove that the PS5 finished installing or launching the title.
 
-Transfer sessions are intentionally memory-only in this stage and reset when the container restarts.
+Live transfer sessions remain memory-only and reset when the process restarts. Persistent install history is a separate record stream described below; it does not recreate an in-flight byte-range tracker after restart.
+
+## Persistent install history
+
+`GET /api/history` returns up to the 100 most recent install attempts. Each `POST /api/install/{id}` creates a distinct history ID, so reinstalling the same PKG does not overwrite the previous record.
+
+History intentionally separates four states:
+
+- `queueStatus`: `queued`, `submitting`, `active`, `complete`, `error`, `interrupted`, or `cancelled` for the NAS-side FIFO queue;
+- `controlStatus`: `pending`, `requesting`, `accepted`, `error`, or `interrupted` for the NAS → receiver control request;
+- `transferStatus`: `waiting`, `downloading`, `complete`, `not_started`, or `interrupted` for the PS5 → NAS HTTP transfer;
+- `installStatus`: currently always `unverified`, because the receiver does not provide a reliable final install-completion callback to the NAS.
+
+`transferStatus=complete` therefore means the observed HTTP byte coverage reached the PKG size; it does **not** mean the PS5 installation or game launch was independently verified.
+
+The queue is strictly sequential. Each queued record has a persisted `queueOrder`; the worker submits the queued record with the lowest order, then waits until that package reaches `transferStatus=complete` before submitting the next record. A receiver control failure releases the queue slot immediately. There is no automatic retry. `startedAt` remains an audit timestamp and is never rewritten to reorder the queue.
+
+On restart, records that were still `queued` remain queued and are resumed only after the HTTP listener is bound. Records that were already `submitting` or `active` become `queueStatus=interrupted` and are never automatically replayed, because the NAS cannot prove whether the PS5 accepted or partially processed the earlier request. `POST /api/retry/{historyId}` is explicit user intent and creates a new history record with `retryOf` pointing to the previous attempt.
+
+`POST /api/cancel/{historyId}` is intentionally narrower than Retry: it only succeeds while `queueStatus=queued`. Cancellation is persisted as `queueStatus=cancelled` and releases that package from the pending set. Once a task is `submitting` or `active`, cancellation returns HTTP 409 because the receiver may already have accepted or started processing it; the NAS does not claim to remotely cancel PS5 work already in flight.
+
+`POST /api/reorder/{historyId}` accepts `{"direction":"up"}` or `{"direction":"down"}` and only moves records that are still `queued`. Moving a `submitting`/`active` record, or moving beyond a queue boundary, returns HTTP 409. Older persisted queue records without `queueOrder` are migrated on load using their original FIFO `startedAt`/ID order.
+
+When `PKGSENDER_HISTORY_FILE` is configured, history and queue state are stored together in a versioned JSON file using same-directory temporary-file write, `fsync`, and atomic rename. Enqueue and the transition to `submitting` are persisted before any receiver network request is made. Progress writes are throttled to the first observed progress, at most once every five seconds, and immediately on transfer completion. Queue/control terminal-state changes are written immediately. Retention never drops `queued`, `submitting`, or `active` records even if the normal 100-record history limit is exceeded.
+
+If the configured persistence file is corrupt, unreadable, or otherwise unavailable at startup, the service does not overwrite it and does not silently switch the install queue to memory-only. Package listing, metadata, covers, health, discovery, and Range serving continue; Install, Retry, Cancel, and Reorder mutations fail closed with HTTP 503 until persistence is repaired.
 
 ## Local development
 

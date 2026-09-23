@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Loopayeh/pkg-sender/nas/internal/discovery"
+	"github.com/Loopayeh/pkg-sender/nas/internal/history"
 	"github.com/Loopayeh/pkg-sender/nas/internal/httpserver"
 	"github.com/Loopayeh/pkg-sender/nas/internal/pkgstore"
 	"github.com/Loopayeh/pkg-sender/nas/internal/ps5"
@@ -41,8 +43,23 @@ func main() {
 		logger.Fatalf("PS5 client: %v", err)
 	}
 
+	historyStore := history.NewMemory(history.DefaultLimit)
+	historyPath := ""
+	historyUnavailable := false
+	if cfg.historyFile != "" {
+		persistentHistory, historyErr := history.Open(cfg.historyFile, history.DefaultLimit)
+		if historyErr != nil {
+			logger.Printf("history persistence unavailable (%s): %v; install queue disabled", cfg.historyFile, historyErr)
+			historyStore = history.NewUnavailable(historyErr)
+			historyUnavailable = true
+		} else {
+			historyStore = persistentHistory
+			historyPath = cfg.historyFile
+		}
+	}
+
 	ps5Discovery := discovery.New(cfg.ps5IP)
-	app, err := httpserver.New(store, ps5Client, cfg.publicBaseURL, logger, ps5Discovery)
+	app, err := httpserver.NewWithHistory(store, ps5Client, cfg.publicBaseURL, logger, historyStore, ps5Discovery)
 	if err != nil {
 		logger.Fatalf("HTTP server: %v", err)
 	}
@@ -67,13 +84,25 @@ func main() {
 	logger.Printf("initial scan: %d pkg file(s)", count)
 	logger.Printf("PS5 receiver: http://%s:%d", cfg.ps5IP, cfg.ps5Port)
 	logger.Printf("PS5 discovery: UDP :%d (best effort)", discovery.BeaconPort)
+	if historyUnavailable {
+		logger.Printf("install history: unavailable; install queue disabled")
+	} else if historyPath == "" {
+		logger.Printf("install history: memory-only")
+	} else {
+		logger.Printf("install history: %s", historyPath)
+	}
 	logger.Printf("public package URL base: %s", cfg.publicBaseURL)
 	logger.Printf("listening on %s", cfg.listen)
 
+	listener, err := net.Listen("tcp", cfg.listen)
+	if err != nil {
+		logger.Fatalf("listen on %s: %v", cfg.listen, err)
+	}
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- httpSrv.ListenAndServe()
+		errCh <- httpSrv.Serve(listener)
 	}()
+	app.ResumeQueue()
 
 	select {
 	case <-sigCtx.Done():
@@ -99,6 +128,7 @@ type config struct {
 	publicBaseURL string
 	ps5IP         string
 	ps5Port       int
+	historyFile   string
 }
 
 func loadConfig() (config, error) {
@@ -108,6 +138,7 @@ func loadConfig() (config, error) {
 		publicBaseURL: strings.TrimSpace(os.Getenv("PKGSENDER_PUBLIC_BASE_URL")),
 		ps5IP:         strings.TrimSpace(os.Getenv("PKGSENDER_PS5_IP")),
 		ps5Port:       12800,
+		historyFile:   strings.TrimSpace(os.Getenv("PKGSENDER_HISTORY_FILE")),
 	}
 	if cfg.ps5IP == "" {
 		return config{}, errors.New("PKGSENDER_PS5_IP is required")

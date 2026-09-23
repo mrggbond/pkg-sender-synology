@@ -20,9 +20,9 @@ GO_BIN=/path/to/go ./build.sh
 
 Defaults:
 
-- version: `0.1.0-0004`
+- version: `0.1.0-0011`
 - architecture: `x86_64`
-- output: `dist/PKGSenderNAS-0.1.0-0004-x86_64.spk`
+- output: `dist/PKGSenderNAS-0.1.0-0011-x86_64.spk`
 
 ARM64 package:
 
@@ -65,9 +65,14 @@ Persistent package data:
 ```text
 /var/packages/PKGSenderNAS/var/
 ├── config.env
+├── history.json
 ├── pkg-sender-nas.log
 └── pkg-sender-nas.pid
 ```
+
+The lifecycle script exports `PKGSENDER_HISTORY_FILE=${VAR_DIR}/history.json` automatically. Users do not need to add this setting to `config.env`. The daemon keeps at most 100 recent install records and writes the file with mode `0600` using atomic replacement. Upgrades preserve the package app-data directory, so `history.json` survives SPK upgrades and restarts.
+
+Because the native package always configures persistent queue storage, failure to open or decode `history.json` disables new Install/Retry queue writes with HTTP 503 while leaving browsing, health, discovery, metadata, covers, and Range serving operational. The daemon does not silently downgrade a broken configured store to a volatile memory-only queue.
 
 Immutable installed payload:
 
@@ -93,18 +98,23 @@ DSM 7.2.2 also exposes `synopkg query <spk>`, but it is not used as a blocking v
 
 ## Real-hardware migration acceptance
 
-DSM 7.2.2 on DS1517+ (`x86_64`, `avoton`) has passed the native-package and discovery gate with `0.1.0-0004`:
+DSM 7.2.2 on DS1517+ (`x86_64`, `avoton`) has passed the native-package, discovery, persistent-history, FIFO-queue, persistence-failure, queued-cancellation, and queued-reordering gates through `0.1.0-0011`:
 
-- upgrades from the earlier native package preserve `config.env` byte-for-byte and restart cleanly;
-- the daemon runs as `PKGSenderNAS:PKGSenderNAS`, not root;
-- the package identity can read the existing PS5 PKG library through Synology ACLs;
-- DSM registers only `12801/udp` for discovery and the installed protocol file has `port_forward="no"`;
-- the daemon listens on UDP `12801` and repeatedly receives real `PKGSENDER v1` beacons from the configured PS5 at `192.168.32.100`;
-- successive discovery snapshots show the PS5 `lastSeen` timestamp advancing with the receiver's beacon interval and `online=true`;
-- the Web UI reports `NAS online · PS5 192.168.32.100 · beacon online`;
-- `/health` reports all 5 PKGs, family metadata and local covers remain available, and HTTP Range remains `206 Partial Content`;
-- the former Docker container remains stopped as a rollback path.
+- upgrades preserve `config.env` byte-for-byte and restart cleanly; production currently runs `0.1.0-0011`;
+- the daemon runs as `PKGSenderNAS:PKGSenderNAS`, not root, and the package identity can read the existing PS5 PKG library through Synology ACLs;
+- DSM registers only `12801/udp` for discovery; the configured PS5 at `192.168.32.100` remains beacon-online;
+- `/health` reports all 5 PKGs and HTTP Range remains `206 Partial Content` after both queue-stage upgrades;
+- production history remains `[]`, the Web UI serves `/api/retry/`, `queueStatus`, and Retry controls, and the former Docker container remains stopped as a rollback path;
+- the complete FIFO behavior was exercised with the `0007` binary on a localhost-only sender at `127.0.0.1:19989` and fake receiver at `127.0.0.1:19990`: first task `active`, second `queued`, and only one receiver POST;
+- restarting that sender converted the accepted active task to `queueStatus=interrupted` without replay while the still-queued task automatically resumed and became active;
+- manual Retry created a new record with `retryOf`, stayed queued behind the active task, and was submitted only after a complete HTTP GET changed the active task to `complete` and released the FIFO slot;
+- queue/history persistence was owned by `PKGSenderNAS:PKGSenderNAS` with mode `0600`, and all temporary FIFO-test files/processes/listeners were removed;
+- final `0008` added fail-closed behavior for a configured-but-unavailable persistence store. A separate localhost-only test used an intentionally corrupt `0600` history file: health/package listing and Range remained operational, `POST /api/install/{id}` returned HTTP 503, the fake receiver received zero POSTs, and the corrupt file SHA-256 remained unchanged;
+- `0009` additionally rolls back in-memory queue state when a required persistence update fails, preventing the worker from releasing the next FIFO slot on a disk error; the Web UI displays persisted queued items with their FIFO position; the production upgrade preserved config byte-for-byte and passed health, discovery, empty-history, Range 206, UI-contract, and Docker-rollback checks;
+- `0010` adds persisted queued-only cancellation: a localhost-only hardware gate queued A then B, observed A `active` / B `queued` with exactly one fake-receiver POST, cancelled B with HTTP 200 and no extra POST, rejected cancellation of active A with HTTP 409, then verified after sender restart that A became `interrupted`, B remained `cancelled`, and the receiver POST count was still one; the cancellation history file remained package-owned mode `0600` and all test artifacts were removed;
+- `0011` adds persisted `queueOrder`, queued-only Up/Down reordering, backward migration for older queued records without an order, and Web UI queue controls; an isolated hardware gate observed A `active` with B/C `queued`, moved C above B without an extra receiver POST, completed A's full 10-byte Range transfer, then verified the second receiver install request was `C.pkg`, with C `active` and B still `queued`; submitting/active records remained immovable, the history file was `PKGSenderNAS:PKGSenderNAS` mode `0600`, and all temporary test artifacts/listeners were removed;
+- all temporary fail-closed test files/processes/listeners were removed and production remained healthy throughout.
 
-No real PS5 install was triggered during the discovery migration gate; the earlier MVP real-install acceptance remains the installation-path baseline.
+No real PS5 install was triggered during the queue/fail-closed gates; the earlier MVP real-install acceptance remains the installation-path baseline.
 
 Do **not** install or start the native SPK while the stable Docker service is still bound to port 9898. Installation/start testing is a separate migration gate after explicitly stopping the Docker instance.

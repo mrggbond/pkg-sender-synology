@@ -47,6 +47,8 @@ load_config() {
     : "${PKGSENDER_PUBLIC_BASE_URL:=}"
     : "${PKGSENDER_PS5_IP:=}"
     : "${PKGSENDER_PS5_PORT:=12800}"
+    : "${PKGSENDER_HISTORY_FILE:=${VAR_DIR}/history.json}"
+    export PKGSENDER_HISTORY_FILE
 
     case "${PKGSENDER_PUBLIC_BASE_URL}" in
         ""|*CHANGE_ME*) return 1 ;;

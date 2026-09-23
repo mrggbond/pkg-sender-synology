@@ -46,6 +46,7 @@ grep -Eq '^create_time="[0-9]{8}-[0-9]{2}:[0-9]{2}:[0-9]{2}"$' "${TOP}/INFO"
 for script in "${TOP}/scripts/"*; do
     /bin/sh -n "${script}"
 done
+grep -q 'PKGSENDER_HISTORY_FILE' "${TOP}/scripts/start-stop-status"
 
 tar -xf "${TOP}/package.tgz" -C "${PAYLOAD}"
 
