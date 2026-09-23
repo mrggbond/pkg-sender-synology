@@ -24,7 +24,6 @@
 
 ### 不包含
 
-- 已移除 NAS 侧 PS5 payload 发送功能。`pkg-receiver.elf` 需要通过用户自己的 PS5 exploit / WebKit 流程加载。
 - Synology SPK MVP 不包含 PS4 / GoldHEN 工作流。
 - 认证、TLS 和公网暴露刻意不在范围内。请仅在可信局域网内使用。
 
@@ -48,14 +47,3 @@
 d946c43e6b12c6945f41e3008159acee5d232f10b06e7d8b67b940ff5488569a  PKGSenderNAS-0.1.0-0021-armv8.spk
 f281fde2d62353cfd0b263b48815bdae64bc2527d5ded2e2ff9956d9c87b1cb2  pkg-receiver.elf
 ```
-
-### 验证摘要
-
-- `go test ./...`
-- `go vet ./...`
-- Web UI JavaScript parse gate
-- `git diff --check`
-- SPK x86_64 构建与结构验证
-- SPK armv8 构建与结构验证
-- NAS 原地升级到 `0.1.0-0021`
-- 部署后的 Health / API / UI 检查
