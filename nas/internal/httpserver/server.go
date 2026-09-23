@@ -15,6 +15,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/Loopayeh/pkg-sender/nas/internal/discovery"
 	"github.com/Loopayeh/pkg-sender/nas/internal/pkgmeta"
 	"github.com/Loopayeh/pkg-sender/nas/internal/pkgstore"
 )
@@ -23,21 +24,29 @@ type Installer interface {
 	Install(ctx context.Context, packageURL, name string) (string, error)
 }
 
+type DiscoveryProvider interface {
+	Snapshot() discovery.Snapshot
+}
+
 type Server struct {
 	store         *pkgstore.Store
 	installer     Installer
+	discovery     DiscoveryProvider
 	publicBaseURL string
 	logger        *log.Logger
 	transfers     *transferTracker
 	mux           *http.ServeMux
 }
 
-func New(store *pkgstore.Store, installer Installer, publicBaseURL string, logger *log.Logger) (*Server, error) {
+func New(store *pkgstore.Store, installer Installer, publicBaseURL string, logger *log.Logger, discoveryProvider ...DiscoveryProvider) (*Server, error) {
 	if store == nil {
 		return nil, errors.New("package store is required")
 	}
 	if installer == nil {
 		return nil, errors.New("PS5 installer is required")
+	}
+	if len(discoveryProvider) > 1 {
+		return nil, errors.New("only one discovery provider is supported")
 	}
 	if logger == nil {
 		logger = log.New(os.Stdout, "", log.LstdFlags)
@@ -67,6 +76,9 @@ func New(store *pkgstore.Store, installer Installer, publicBaseURL string, logge
 		transfers:     newTransferTracker(),
 		mux:           http.NewServeMux(),
 	}
+	if len(discoveryProvider) == 1 {
+		s.discovery = discoveryProvider[0]
+	}
 	s.routes()
 	return s, nil
 }
@@ -85,6 +97,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/packages", s.handlePackages)
 	s.mux.HandleFunc("/api/families", s.handleFamilies)
 	s.mux.HandleFunc("/api/transfers", s.handleTransfers)
+	s.mux.HandleFunc("/api/discovery", s.handleDiscovery)
 	s.mux.HandleFunc("/api/rescan", s.handleRescan)
 	s.mux.HandleFunc("/api/install/", s.handleInstall)
 	s.mux.HandleFunc("/icon/", s.handleIcon)
@@ -109,6 +122,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 			"packages":  "GET /api/packages",
 			"families":  "GET /api/families",
 			"transfers": "GET /api/transfers",
+			"discovery": "GET /api/discovery",
 			"rescan":    "POST /api/rescan",
 			"install":   "POST /api/install/{id}",
 			"icon":      "GET|HEAD /icon/{id}",
@@ -151,6 +165,27 @@ func (s *Server) handleTransfers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.transfers.List())
+}
+
+func (s *Server) handleDiscovery(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		methodNotAllowed(w, "GET, HEAD")
+		return
+	}
+	if s.discovery == nil {
+		writeJSON(w, http.StatusOK, discovery.Snapshot{
+			Listening: false,
+			Port:      discovery.BeaconPort,
+			Error:     "discovery is not configured",
+			Consoles:  []discovery.Console{},
+		})
+		return
+	}
+	snapshot := s.discovery.Snapshot()
+	if snapshot.Consoles == nil {
+		snapshot.Consoles = []discovery.Console{}
+	}
+	writeJSON(w, http.StatusOK, snapshot)
 }
 
 func (s *Server) handleRescan(w http.ResponseWriter, r *http.Request) {

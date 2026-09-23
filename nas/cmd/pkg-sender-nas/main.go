@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Loopayeh/pkg-sender/nas/internal/discovery"
 	"github.com/Loopayeh/pkg-sender/nas/internal/httpserver"
 	"github.com/Loopayeh/pkg-sender/nas/internal/pkgstore"
 	"github.com/Loopayeh/pkg-sender/nas/internal/ps5"
@@ -40,10 +41,19 @@ func main() {
 		logger.Fatalf("PS5 client: %v", err)
 	}
 
-	app, err := httpserver.New(store, ps5Client, cfg.publicBaseURL, logger)
+	ps5Discovery := discovery.New(cfg.ps5IP)
+	app, err := httpserver.New(store, ps5Client, cfg.publicBaseURL, logger, ps5Discovery)
 	if err != nil {
 		logger.Fatalf("HTTP server: %v", err)
 	}
+
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		if err := ps5Discovery.Listen(sigCtx); err != nil && sigCtx.Err() == nil {
+			logger.Printf("PS5 discovery unavailable: %v", err)
+		}
+	}()
 
 	httpSrv := &http.Server{
 		Addr:              cfg.listen,
@@ -56,6 +66,7 @@ func main() {
 	logger.Printf("package root: %s", store.Root())
 	logger.Printf("initial scan: %d pkg file(s)", count)
 	logger.Printf("PS5 receiver: http://%s:%d", cfg.ps5IP, cfg.ps5Port)
+	logger.Printf("PS5 discovery: UDP :%d (best effort)", discovery.BeaconPort)
 	logger.Printf("public package URL base: %s", cfg.publicBaseURL)
 	logger.Printf("listening on %s", cfg.listen)
 
@@ -63,9 +74,6 @@ func main() {
 	go func() {
 		errCh <- httpSrv.ListenAndServe()
 	}()
-
-	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	select {
 	case <-sigCtx.Done():

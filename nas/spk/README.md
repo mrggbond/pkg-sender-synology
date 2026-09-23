@@ -20,9 +20,9 @@ GO_BIN=/path/to/go ./build.sh
 
 Defaults:
 
-- version: `0.1.0-0002`
+- version: `0.1.0-0004`
 - architecture: `x86_64`
-- output: `dist/PKGSenderNAS-0.1.0-0002-x86_64.spk`
+- output: `dist/PKGSenderNAS-0.1.0-0004-x86_64.spk`
 
 ARM64 package:
 
@@ -74,14 +74,17 @@ Immutable installed payload:
 ```text
 /var/packages/PKGSenderNAS/target/
 ├── bin/pkg-sender-nas
-└── share/config.env.example
+├── share/config.env.example
+└── var/PKGSenderNAS.sc
 ```
 
-The package intentionally does not declare `adminport` or a DSM `port-config` for 9898. On the migration target, WebStation already has the existing Docker-project service registered against `127.0.0.1:9898`; declaring the same port again makes DSM reject the SPK with error 283. The native daemon still binds the configured `PKGSENDER_LISTEN` address (default `:9898`) once the Docker service is stopped.
+The package intentionally does not declare `adminport` or DSM port ownership for TCP 9898. On the migration target, WebStation already has the existing Docker-project service registered against `127.0.0.1:9898`; declaring the same TCP port again makes DSM reject the SPK with error 283. The native daemon still binds the configured `PKGSENDER_LISTEN` address (default `:9898`) once the Docker service is stopped.
+
+`conf/resource` registers only UDP `12801` through `var/PKGSenderNAS.sc`, so DSM can account for the PS5 receiver beacon listener without taking ownership of TCP 9898. The protocol entry uses `port_forward="no"`, keeping this LAN-only discovery service out of DSM's built-in port-forwarding rule selection.
 
 ## Safe DSM validation
 
-`verify.sh` is the primary pre-install gate. It checks the SPK layout, lifecycle script syntax, required DSM metadata, embedded icon fields, payload contents, executable mode, absence of duplicate DSM port ownership, and the MD5 recorded for `package.tgz`.
+`verify.sh` is the primary pre-install gate. It checks the SPK layout, lifecycle script syntax, required DSM metadata, embedded icon fields, payload contents, executable mode, UDP `12801` discovery declaration, absence of duplicate TCP `9898` ownership, and the MD5 recorded for `package.tgz`.
 
 For hardware validation without installation, copy the SPK to the NAS, unpack it into a temporary directory, and execute the extracted binary with an empty environment. On the DS1517+ test target the x86_64 binary executes and fails closed on the missing `PKGSENDER_PS5_IP`, which proves the packaged Linux binary is runnable without binding a port.
 
@@ -90,17 +93,18 @@ DSM 7.2.2 also exposes `synopkg query <spk>`, but it is not used as a blocking v
 
 ## Real-hardware migration acceptance
 
-DSM 7.2.2 on DS1517+ (`x86_64`, `avoton`) has passed the native-package migration gate with `0.1.0-0002`:
+DSM 7.2.2 on DS1517+ (`x86_64`, `avoton`) has passed the native-package and discovery gate with `0.1.0-0004`:
 
-- SPK installation completed successfully after removing duplicate DSM ownership of port 9898;
+- upgrades from the earlier native package preserve `config.env` byte-for-byte and restart cleanly;
 - the daemon runs as `PKGSenderNAS:PKGSenderNAS`, not root;
 - the package identity can read the existing PS5 PKG library through Synology ACLs;
-- `synopkg restart PKGSenderNAS` performs a clean stop/start and rescans the library;
-- `/health` reports all 5 PKGs;
-- family metadata and local covers are available;
-- HTTP Range remains `206 Partial Content`;
+- DSM registers only `12801/udp` for discovery and the installed protocol file has `port_forward="no"`;
+- the daemon listens on UDP `12801` and repeatedly receives real `PKGSENDER v1` beacons from the configured PS5 at `192.168.32.100`;
+- successive discovery snapshots show the PS5 `lastSeen` timestamp advancing with the receiver's beacon interval and `online=true`;
+- the Web UI reports `NAS online · PS5 192.168.32.100 · beacon online`;
+- `/health` reports all 5 PKGs, family metadata and local covers remain available, and HTTP Range remains `206 Partial Content`;
 - the former Docker container remains stopped as a rollback path.
 
-No real PS5 install was triggered during this migration gate.
+No real PS5 install was triggered during the discovery migration gate; the earlier MVP real-install acceptance remains the installation-path baseline.
 
 Do **not** install or start the native SPK while the stable Docker service is still bound to port 9898. Installation/start testing is a separate migration gate after explicitly stopping the Docker instance.

@@ -10,7 +10,7 @@ MVP scope:
 4. call the PS5 receiver at `POST http://<ps5>:12800/api/install`;
 5. let the PS5 pull the PKG directly from the NAS.
 
-Not included yet: UDP discovery, persistent queue/history, image/folder copy, PS4/GoldHEN support.
+Not included yet: persistent queue/history, image/folder copy, PS4/GoldHEN support.
 
 ## API
 
@@ -19,6 +19,7 @@ Not included yet: UDP discovery, persistent queue/history, image/folder copy, PS
 - `GET /api/packages`
 - `GET /api/families`
 - `GET /api/transfers`
+- `GET /api/discovery`
 - `POST /api/rescan`
 - `POST /api/install/{id}`
 - `GET|HEAD /pkg/{id}`
@@ -48,6 +49,14 @@ Packages without a Title ID are never dropped or combined arbitrarily: each rece
 
 The family UI uses the base Game package icon as its cover. It intentionally does not promote patch/DLC icons to the family cover because those packages may contain generic or unrelated artwork. Missing icons fall back to a local placeholder and never affect scanning or installation.
 
+## PS5 UDP discovery
+
+The NAS listens on UDP `12801` for the receiver's `PKGSENDER v1` beacon. The receiver broadcasts this every 3 seconds; the NAS records the packet source IP and most recent timestamp.
+
+`GET /api/discovery` returns the configured PS5 target plus any discovered receiver IPs. A receiver is considered online when a beacon was seen within the last 10 seconds. Discovery is informational in this stage: installs still use `PKGSENDER_PS5_IP`, and a listener failure never blocks scanning, Range serving, or installation through the configured target.
+
+The embedded UI reports whether the configured PS5 is currently visible by beacon. It does not silently replace or persist the configured PS5 address.
+
 ## Web UI
 
 Open `http://NAS_IP:9898/ui/` in a browser. The embedded UI has no third-party runtime dependencies and provides:
@@ -57,6 +66,7 @@ Open `http://NAS_IP:9898/ui/` in a browser. The embedded UI has no third-party r
 - manual library rescan;
 - an Install action with confirmation;
 - live in-memory transfer status and byte-accurate percentage polling once per second.
+- passive PS5 receiver discovery status from UDP `12801`.
 
 The UI uses the existing same-origin JSON API and does not add a second listening port.
 
@@ -87,7 +97,7 @@ PKG_DIR=/volume1/PS5/PKG
 
 Then create the project from `compose.yaml`.
 
-The package directory is mounted read-only. The container does not need privileged mode. MVP uses ordinary TCP port mapping; host networking is not required until UDP auto-discovery is added.
+The package directory is mounted read-only. The container does not need privileged mode. The current Docker compose deployment does not expose UDP `12801`; native SPK is the validated discovery target. If Docker discovery is needed later, publish `12801/udp` or use an equivalent LAN-reachable networking mode.
 
 ## Native DSM package
 
@@ -95,7 +105,7 @@ A native DSM 7 SPK build is available under `spk/`. It packages the same Go serv
 
 The Docker and native package variants both use port 9898 by default. Do not start both at the same time.
 
-Real-hardware native-package migration has passed on DSM 7.2.2 / DS1517+ with SPK `0.1.0-0002`: the service runs under the DSM package identity, survives a package restart, scans the existing 5-PKG library, serves covers, and preserves byte-range behavior. The previous Docker container is retained in stopped state as a rollback path.
+Real-hardware native-package and discovery acceptance has passed on DSM 7.2.2 / DS1517+ with SPK `0.1.0-0004`: the service runs under the DSM package identity, survives package upgrades/restarts, scans the existing 5-PKG library, serves covers, preserves byte-range behavior, and continuously receives the configured PS5's UDP `12801` beacon. The Web UI reports `beacon online`. The previous Docker container is retained in stopped state as a rollback path.
 
 ## Smoke test
 
@@ -104,6 +114,14 @@ List packages:
 ```sh
 curl http://NAS_IP:9898/api/packages
 ```
+
+Check PS5 discovery:
+
+```sh
+curl http://NAS_IP:9898/api/discovery
+```
+
+On validated native SPK hardware, the configured receiver appears with `configured=true` and `online=true` while `pkg-receiver.elf` is broadcasting.
 
 Take one `id` and validate HEAD:
 

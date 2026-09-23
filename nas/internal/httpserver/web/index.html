@@ -41,12 +41,23 @@
   </main>
   <div id="toast" class="toast" role="status"></div>
   <script>
-    const state={families:[],transfers:new Map(),installing:new Set(),query:""};
+    const state={families:[],transfers:new Map(),discovery:null,installing:new Set(),query:""};
     const els={grid:document.getElementById("packageGrid"),count:document.getElementById("packageCount"),search:document.getElementById("searchInput"),rescan:document.getElementById("rescanButton"),refresh:document.getElementById("refreshButton"),statusDot:document.getElementById("statusDot"),statusText:document.getElementById("statusText"),toast:document.getElementById("toast")};
     function formatBytes(bytes){if(!Number.isFinite(bytes)||bytes<0)return"—";const units=["B","KiB","MiB","GiB","TiB"];let value=bytes,unit=0;while(value>=1024&&unit<units.length-1){value/=1024;unit++}const digits=value>=100||unit===0?0:value>=10?1:2;return value.toFixed(digits)+" "+units[unit]}
     function statusLabel(status){return({requesting:"Contacting PS5",queued:"Queued",downloading:"Transferring",complete:"Transfer complete",error:"Error"})[status]||"Ready"}
     function packageTypeLabel(pkg){const labels={game:"Game",patch:"Patch",dlc:"DLC",app:"App",unknown:"Unknown"};const label=labels[pkg.packageType]||"Unknown";return pkg.packageTypeSource==="heuristic"?"Likely "+label:label}
     function setConnection(ok,message){els.statusDot.className="statusdot "+(ok?"ok":"error");els.statusText.textContent=message}
+    function discoveryStatus(snapshot){
+      if(!snapshot)return"NAS online";
+      const target=snapshot.configuredIp||"not configured";
+      const consoles=Array.isArray(snapshot.consoles)?snapshot.consoles:[];
+      const configured=consoles.find(console=>console.configured);
+      if(configured&&configured.online)return"NAS online · PS5 "+target+" · beacon online";
+      const online=consoles.filter(console=>console.online);
+      if(online.length)return"NAS online · configured PS5 "+target+" · "+online.length+" other receiver"+(online.length===1?"":"s")+" discovered";
+      if(snapshot.listening)return"NAS online · configured PS5 "+target+" · waiting for UDP beacon";
+      return"NAS online · configured PS5 "+target+" · discovery unavailable";
+    }
     let toastTimer;function showToast(message,error=false){clearTimeout(toastTimer);els.toast.textContent=message;els.toast.className="toast visible"+(error?" error":"");toastTimer=setTimeout(()=>els.toast.className="toast",3600)}
     async function fetchJSON(url,options={}){const response=await fetch(url,{cache:"no-store",...options});let body=null;try{body=await response.json()}catch{}if(!response.ok){throw new Error((body&&(body.error||body.message))||response.status+" "+response.statusText)}return body}
     function packageSearchText(pkg){return[pkg.title,pkg.name,pkg.relativePath,pkg.titleId,pkg.contentId,pkg.version,pkg.packageType].filter(Boolean).join("\n").toLocaleLowerCase()}
@@ -122,7 +133,7 @@
         card.appendChild(list);els.grid.appendChild(card);
       }
     }
-    async function refresh({quiet=false}={}){try{const[families,transfers]=await Promise.all([fetchJSON("/api/families"),fetchJSON("/api/transfers")]);state.families=Array.isArray(families)?families:[];state.transfers=new Map((Array.isArray(transfers)?transfers:[]).map(t=>[t.id,t]));setConnection(true,"Connected · progress updates every second");render()}catch(error){setConnection(false,"Connection error · "+error.message);if(!quiet)showToast("Refresh failed: "+error.message,true)}}
+    async function refresh({quiet=false}={}){try{const[families,transfers,discovery]=await Promise.all([fetchJSON("/api/families"),fetchJSON("/api/transfers"),fetchJSON("/api/discovery")]);state.families=Array.isArray(families)?families:[];state.transfers=new Map((Array.isArray(transfers)?transfers:[]).map(t=>[t.id,t]));state.discovery=discovery||null;setConnection(true,discoveryStatus(state.discovery));render()}catch(error){setConnection(false,"Connection error · "+error.message);if(!quiet)showToast("Refresh failed: "+error.message,true)}}
     async function installPackage(pkg){const display=pkg.title&&pkg.title!==pkg.name?pkg.title+"\n"+pkg.name:pkg.name;if(!window.confirm("Install this PKG on the configured PS5?\n\n"+display+"\n"+formatBytes(pkg.size)))return;state.installing.add(pkg.id);render();try{await fetchJSON("/api/install/"+encodeURIComponent(pkg.id),{method:"POST"});showToast("Install queued: "+(pkg.title||pkg.name));await refresh({quiet:true})}catch(error){showToast("Install failed: "+error.message,true)}finally{state.installing.delete(pkg.id);render()}}
     async function rescan(){els.rescan.disabled=true;try{const result=await fetchJSON("/api/rescan",{method:"POST"});showToast("Library rescanned · "+result.packages+" PKG file(s)");await refresh({quiet:true})}catch(error){showToast("Rescan failed: "+error.message,true)}finally{els.rescan.disabled=false}}
     els.search.addEventListener("input",event=>{state.query=event.target.value;render()});els.rescan.addEventListener("click",rescan);els.refresh.addEventListener("click",()=>refresh());

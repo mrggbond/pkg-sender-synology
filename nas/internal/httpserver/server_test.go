@@ -13,7 +13,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Loopayeh/pkg-sender/nas/internal/discovery"
 	"github.com/Loopayeh/pkg-sender/nas/internal/pkgstore"
 )
 
@@ -26,6 +28,14 @@ func (f *fakeInstaller) Install(_ context.Context, packageURL, name string) (str
 	f.url = packageURL
 	f.name = name
 	return `{"status":"success"}`, nil
+}
+
+type fakeDiscovery struct {
+	snapshot discovery.Snapshot
+}
+
+func (f fakeDiscovery) Snapshot() discovery.Snapshot {
+	return f.snapshot
 }
 
 func TestPackageRangeAndInstallFlow(t *testing.T) {
@@ -199,10 +209,55 @@ func TestEmbeddedWebUI(t *testing.T) {
 	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
 		t.Fatalf("UI Content-Type=%q", got)
 	}
-	for _, want := range []string{"PS5 PKG Sender", "/api/families", "/api/transfers", "/api/install/", "/icon/", "pkg.contentId", "packageTypeLabel"} {
+	for _, want := range []string{"PS5 PKG Sender", "/api/families", "/api/transfers", "/api/discovery", "/api/install/", "/icon/", "pkg.contentId", "packageTypeLabel"} {
 		if !bytes.Contains(body, []byte(want)) {
 			t.Fatalf("UI does not contain %q", want)
 		}
+	}
+}
+
+func TestDiscoveryAPI(t *testing.T) {
+	root := t.TempDir()
+	store, err := pkgstore.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lastSeen := time.Date(2026, 9, 23, 4, 30, 0, 0, time.UTC)
+	provider := fakeDiscovery{snapshot: discovery.Snapshot{
+		Listening:    true,
+		Port:         discovery.BeaconPort,
+		ConfiguredIP: "192.168.32.100",
+		Consoles: []discovery.Console{{
+			IP:         "192.168.32.100",
+			LastSeen:   lastSeen,
+			Configured: true,
+			Online:     true,
+		}},
+	}}
+	app, err := New(store, &fakeInstaller{}, "http://192.168.32.5:9898", log.New(io.Discard, "", 0), provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(app.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/discovery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("discovery status=%d, want 200", resp.StatusCode)
+	}
+	var got discovery.Snapshot
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Listening || got.Port != discovery.BeaconPort || got.ConfiguredIP != "192.168.32.100" {
+		t.Fatalf("discovery snapshot=%+v", got)
+	}
+	if len(got.Consoles) != 1 || !got.Consoles[0].Configured || !got.Consoles[0].Online || !got.Consoles[0].LastSeen.Equal(lastSeen) {
+		t.Fatalf("discovery consoles=%+v", got.Consoles)
 	}
 }
 

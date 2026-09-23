@@ -61,7 +61,7 @@ EXPECTED_MD5="$(awk -F'"' '/^checksum="/ {print $2; exit}' "${TOP}/INFO")"
     echo "package.tgz checksum mismatch." >&2
     exit 1
 }
-for required in     bin/pkg-sender-nas     share/config.env.example
+for required in     bin/pkg-sender-nas     share/config.env.example     var/PKGSenderNAS.sc
 do
     [ -f "${PAYLOAD}/${required}" ] || {
         echo "Missing payload entry: ${required}" >&2
@@ -74,8 +74,11 @@ done
     exit 1
 }
 
-if grep -q '"port-config"' "${TOP}/conf/resource"; then
-    echo "SPK must not re-register port 9898 through conf/resource." >&2
+grep -q '"port-config"' "${TOP}/conf/resource"
+grep -q 'dst\.ports="12801/udp"' "${PAYLOAD}/var/PKGSenderNAS.sc"
+grep -q 'port_forward="no"' "${PAYLOAD}/var/PKGSenderNAS.sc"
+if grep -q '9898' "${PAYLOAD}/var/PKGSenderNAS.sc"; then
+    echo "SPK must not re-register port 9898 through DSM port-config." >&2
     exit 1
 fi
 grep -q 'CHANGE_ME_NAS_IP' "${PAYLOAD}/share/config.env.example"
