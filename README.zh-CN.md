@@ -42,6 +42,14 @@
 
 NAS 不负责发送或加载 PS5 payload。payload 加载不属于这个 SPK 的职责范围。
 
+## Docker
+
+多架构 Docker 镜像发布在 GitHub Container Registry。详见 [docs/docker.zh-CN.md](docs/docker.zh-CN.md)。
+
+```sh
+docker pull ghcr.io/mrggbond/pkg-sender-synology:latest
+```
+
 ## 构建
 
 Synology 套件位于 `nas/spk`。

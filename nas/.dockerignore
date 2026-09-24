@@ -1,0 +1,7 @@
+.git
+.gitignore
+spk/dist
+spk/work
+spk/*.spk
+**/.DS_Store
+**/*~

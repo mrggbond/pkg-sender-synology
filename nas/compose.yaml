@@ -1,8 +1,6 @@
 services:
   pkg-sender-nas:
-    build:
-      context: .
-    image: pkg-sender-nas:local
+    image: ghcr.io/mrggbond/pkg-sender-synology:latest
     container_name: pkg-sender-nas
     restart: unless-stopped
     read_only: true

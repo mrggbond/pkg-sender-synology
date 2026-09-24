@@ -42,6 +42,14 @@ Validated hardware/software target:
 
 The NAS does not send or load the PS5 payload. Payload loading is outside this SPK's scope.
 
+## Docker
+
+A multi-architecture Docker image is published to GitHub Container Registry. See [docs/docker.md](docs/docker.md).
+
+```sh
+docker pull ghcr.io/mrggbond/pkg-sender-synology:latest
+```
+
 ## Build
 
 The Synology package lives under `nas/spk`.

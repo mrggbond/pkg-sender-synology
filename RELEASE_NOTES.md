@@ -21,6 +21,7 @@ This release packages the Synology NAS implementation as a DSM 7 SPK and validat
 - Persistent install history and FIFO queue with retry, cancel, and reorder support.
 - UDP receiver discovery status display.
 - Chinese / English Web UI language switch.
+- GitHub Container Registry Docker image: `ghcr.io/mrggbond/pkg-sender-synology` for `linux/amd64` and `linux/arm64`.
 
 ### Not included
 
@@ -40,6 +41,7 @@ This release packages the Synology NAS implementation as a DSM 7 SPK and validat
 - `PKGSenderNAS-0.1.0-0021-x86_64.spk`
 - `PKGSenderNAS-0.1.0-0021-armv8.spk`
 - `pkg-receiver.elf`
+- Docker image: `ghcr.io/mrggbond/pkg-sender-synology:0.1.0-0021`
 
 ### SHA256
 
@@ -57,5 +59,6 @@ f281fde2d62353cfd0b263b48815bdae64bc2527d5ded2e2ff9956d9c87b1cb2  pkg-receiver.e
 - `git diff --check`
 - SPK x86_64 build and structure verification
 - SPK armv8 build and structure verification
+- Docker image workflow added for GHCR multi-architecture publishing
 - In-place NAS upgrade to `0.1.0-0021`
 - Health/API/UI checks after deployment

@@ -39,6 +39,7 @@
 - `PKGSenderNAS-0.1.0-0021-x86_64.spk`
 - `PKGSenderNAS-0.1.0-0021-armv8.spk`
 - `pkg-receiver.elf`
+- Docker 镜像：`ghcr.io/mrggbond/pkg-sender-synology:0.1.0-0021`
 
 ### SHA256
 
