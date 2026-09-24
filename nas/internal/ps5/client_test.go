@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -53,5 +54,18 @@ func TestInstallRejectsReceiverFailure(t *testing.T) {
 	}
 	if _, err := client.Install(context.Background(), "http://nas:9898/pkg/id", "x.pkg"); err == nil {
 		t.Fatal("expected receiver failure")
+	}
+}
+
+func TestDynamicClientAllowsEmptyInitialIPButInstallRequiresConfiguration(t *testing.T) {
+	client, err := NewDynamic("", 12800, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := client.Target(); got.IP != "" || got.Port != 12800 {
+		t.Fatalf("target=%+v, want empty IP and port 12800", got)
+	}
+	if _, err := client.Install(context.Background(), "http://nas:9898/pkg/id", "x.pkg"); err == nil || !strings.Contains(err.Error(), "PS5 IP is not configured") {
+		t.Fatalf("install error=%v, want not configured", err)
 	}
 }

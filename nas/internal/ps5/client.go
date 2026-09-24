@@ -69,9 +69,13 @@ func NewWithBaseURL(baseURL string, httpClient *http.Client) (*Client, error) {
 }
 
 func NewDynamic(ip string, port int, timeout time.Duration) (*DynamicClient, error) {
-	parsed, err := normalizeIP(ip)
-	if err != nil {
-		return nil, err
+	parsed := ""
+	if strings.TrimSpace(ip) != "" {
+		var err error
+		parsed, err = normalizeIP(ip)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if port < 1 || port > 65535 {
 		return nil, errors.New("PS5 port must be between 1 and 65535")
@@ -111,6 +115,9 @@ func (c *DynamicClient) Install(ctx context.Context, packageURL, name string) (s
 	c.mu.RLock()
 	ip, port, timeout := c.ip, c.port, c.timeout
 	c.mu.RUnlock()
+	if strings.TrimSpace(ip) == "" {
+		return "", errors.New("PS5 IP is not configured")
+	}
 	client, err := New(ip, port, timeout)
 	if err != nil {
 		return "", err

@@ -216,6 +216,47 @@ func TestPackageRangeAndInstallFlow(t *testing.T) {
 	}
 }
 
+func TestInstallUsesRequestHostWhenPublicBaseURLIsEmpty(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Game.pkg"), []byte("pkg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := pkgstore.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Scan(); err != nil {
+		t.Fatal(err)
+	}
+	pkg := store.List()[0]
+	installer := &fakeInstaller{}
+	app, err := New(store, installer, "", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(app.Handler())
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/api/install/"+pkg.ID, "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("install status=%d, want 202", resp.StatusCode)
+	}
+	wantPrefix := srv.URL + "/pkg/"
+	waitFor(t, func() bool {
+		calls := installer.Calls()
+		return len(calls) == 1
+	})
+	call := installer.Calls()[0]
+	if !strings.HasPrefix(call.url, wantPrefix) {
+		t.Fatalf("installer URL=%q, want prefix %q", call.url, wantPrefix)
+	}
+}
+
 func TestEmbeddedWebUI(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "Game.pkg"), []byte("0123456789"), 0o644); err != nil {

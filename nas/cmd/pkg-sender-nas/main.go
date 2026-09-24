@@ -161,12 +161,6 @@ func loadConfig() (config, error) {
 		titleAliasesFile: strings.TrimSpace(os.Getenv("PKGSENDER_TITLE_ALIASES_FILE")),
 		configFile:       strings.TrimSpace(os.Getenv("PKGSENDER_CONFIG_FILE")),
 	}
-	if cfg.ps5IP == "" {
-		return config{}, errors.New("PKGSENDER_PS5_IP is required")
-	}
-	if cfg.publicBaseURL == "" {
-		return config{}, errors.New("PKGSENDER_PUBLIC_BASE_URL is required")
-	}
 	packageDirs, err := loadPackageDirs()
 	if err != nil {
 		return config{}, err

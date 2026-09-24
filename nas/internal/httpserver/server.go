@@ -85,21 +85,10 @@ func newServer(store *pkgstore.Store, installer Installer, publicBaseURL string,
 		historyStore = history.NewMemory(history.DefaultLimit)
 	}
 
-	publicBaseURL = strings.TrimRight(strings.TrimSpace(publicBaseURL), "/")
-	if publicBaseURL == "" {
-		return nil, errors.New("PKGSENDER_PUBLIC_BASE_URL is required")
+	publicBaseURL, err := normalizePublicBaseURL(publicBaseURL)
+	if err != nil {
+		return nil, err
 	}
-	u, err := url.Parse(publicBaseURL)
-	if err != nil || u.Scheme != "http" || u.Host == "" {
-		return nil, errors.New("PKGSENDER_PUBLIC_BASE_URL must be a valid http URL")
-	}
-	if u.RawQuery != "" || u.Fragment != "" {
-		return nil, errors.New("PKGSENDER_PUBLIC_BASE_URL must not contain query or fragment")
-	}
-	if u.Path != "" && u.Path != "/" {
-		return nil, errors.New("PKGSENDER_PUBLIC_BASE_URL must not contain a path")
-	}
-	publicBaseURL = strings.TrimRight(u.String(), "/")
 
 	s := &Server{
 		store:         store,
@@ -119,6 +108,36 @@ func newServer(store *pkgstore.Store, installer Installer, publicBaseURL string,
 
 func (s *Server) Handler() http.Handler {
 	return s.mux
+}
+
+func normalizePublicBaseURL(raw string) (string, error) {
+	publicBaseURL := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if publicBaseURL == "" {
+		return "", nil
+	}
+	u, err := url.Parse(publicBaseURL)
+	if err != nil || u.Scheme != "http" || u.Host == "" {
+		return "", errors.New("PKGSENDER_PUBLIC_BASE_URL must be a valid http URL")
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return "", errors.New("PKGSENDER_PUBLIC_BASE_URL must not contain query or fragment")
+	}
+	if u.Path != "" && u.Path != "/" {
+		return "", errors.New("PKGSENDER_PUBLIC_BASE_URL must not contain a path")
+	}
+	return strings.TrimRight(u.String(), "/"), nil
+}
+
+func (s *Server) packageURL(r *http.Request, id string) (string, error) {
+	base := s.publicBaseURL
+	if base == "" {
+		host := strings.TrimSpace(r.Host)
+		if host == "" {
+			return "", errors.New("public package URL base is not configured and request host is empty")
+		}
+		base = "http://" + host
+	}
+	return base + "/pkg/" + url.PathEscape(id), nil
 }
 
 func (s *Server) SetTitleAliasesFile(path string) {
@@ -605,7 +624,11 @@ func (s *Server) handleInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	packageURL := s.publicBaseURL + "/pkg/" + url.PathEscape(id)
+	packageURL, err := s.packageURL(r, id)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
 	record, err := s.history.CreateQueued(pkg, packageURL, "")
 	if err != nil {
 		s.logger.Printf("enqueue install for %s failed: %v", pkg.RelativePath, err)
@@ -657,7 +680,11 @@ func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	packageURL := s.publicBaseURL + "/pkg/" + url.PathEscape(pkg.ID)
+	packageURL, err := s.packageURL(r, pkg.ID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
 	record, err := s.history.CreateQueued(pkg, packageURL, previous.ID)
 	if err != nil {
 		s.logger.Printf("enqueue retry for %s failed: %v", pkg.RelativePath, err)
