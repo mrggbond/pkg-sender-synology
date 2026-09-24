@@ -7,6 +7,10 @@ on:
         description: "Git ref to build"
         required: false
         default: "synology-mvp"
+      image_tag:
+        description: "Optional Docker image tag to publish"
+        required: false
+        default: "0.1.0-0021"
   push:
     branches:
       - synology-mvp
@@ -48,6 +52,7 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=synology-mvp,enable=${{ github.ref_name == 'synology-mvp' }}
+            type=raw,value=${{ github.event.inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.image_tag != '' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=tag
