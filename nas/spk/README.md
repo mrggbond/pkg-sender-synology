@@ -1,64 +1,70 @@
-# Synology native SPK packaging
+# Synology native SPK packaging (DSM 6 / DSM 7)
 
-This directory builds a native DSM 7 package for the Go sender. It is separate from the Container Manager deployment: building or querying an SPK does not stop, replace, or reconfigure the running Docker service.
+This directory builds native Synology packages for the Go sender, independently of Container Manager. Building an SPK does not stop, replace, publish, or reconfigure a running Docker service.
 
-## Current target
+## Release and compatibility
 
-The first real-hardware target is DSM 7.2.2 on DS1517+ (`x86_64`, Synology platform `avoton`). The build script also supports `armv8` for later ARM64 validation.
+Latest package release: **[v0.1.1](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.1)**.
 
-The package runs with DSM's package identity via `conf/privilege` (`run-as: package`). It does not require root privileges after installation.
+| Package | DSM version | Architecture | Startup behavior |
+| --- | --- | --- | --- |
+| `PKGSenderNAS-0.1.1-x86_64.spk` | DSM 7 | x86_64 / Intel-AMD | Configure `config.env` before starting |
+| `PKGSenderNAS-0.1.1-armv8.spk` | DSM 7 | armv8 / ARM64 | Configure `config.env` before starting |
+| `PKGSenderNAS-0.1.1-dsm6-x86_64.spk` | DSM 6 | x86_64 / Intel-AMD | Can start before PS5/library configuration |
 
-Package Center icons are derived from the repository's existing `payload/icon0.png` branding and committed as the DSM-required 64×64 `PACKAGE_ICON.PNG` and 256×256 `PACKAGE_ICON_256.PNG`.
+The DSM 7.2.2 / DS1517+ x86_64 platform was the historical real-hardware target. **v0.1.1 has passed local tests and package/asset inspection, but no v0.1.1 installation or DSM launcher hardware acceptance has been recorded.** DSM 6 and DSM 7 armv8 are not hardware-validated.
+
+DSM 7 installs with `conf/privilege` (`run-as: package`); DSM 6 uses a separate legacy SPK layout and startup script. Package Center icon resources are 64×64 (DSM 7) or 72×72 (DSM 6), with a 256×256 icon also bundled. Both editions include 16/24/32/48/64/72/256px application-menu icons. Their `ui/config` uses DSM's `.url` launcher definition targeting `http://<NAS-IP>:9898/ui/`.
 
 ## Build
 
-From `nas/spk`:
+Run from `nas/spk/` with Go **1.24 or newer**:
 
 ```sh
+# DSM 7 x86_64 (default)
 GO_BIN=/path/to/go ./build.sh
-```
 
-Defaults:
-
-- version: `0.1.1`
-- architecture: `x86_64`
-- output: `dist/PKGSenderNAS-0.1.1-x86_64.spk`
-
-ARM64 package:
-
-```sh
+# DSM 7 armv8
 ARCH=armv8 GO_BIN=/path/to/go ./build.sh
+
+# DSM 6 x86_64
+GO_BIN=/path/to/go ./build-dsm6.sh
+
+# Independent Web UI regression tests
+node --test ../internal/httpserver/ui.test.cjs
 ```
 
-Run the standalone Web UI regression suite with `node --test ../internal/httpserver/ui.test.cjs`. The build runs the native Go test suite first, then cross-builds a static Linux binary, assembles an xz-compressed `package.tgz`, creates the plain-tar SPK archive with extended attributes disabled, and runs `verify.sh`.
+Build scripts default to version `0.1.1` and write packages into `dist/`. They run Go tests, cross-build static Linux executables, build the SPK archive, and run their respective `verify.sh` or `verify-dsm6.sh` checks. The packaging process does **not** publish Docker images or GitHub Releases.
 
-For DSM 6 x86_64, use `GO_BIN=/path/to/go ./build-dsm6.sh`; this produces `dist/PKGSenderNAS-0.1.1-dsm6-x86_64.spk`. DSM 6 and DSM 7 use separate package layouts but share the Web UI and desktop application assets. The DSM 6 Package Center icon uses 72×72, whereas DSM 7 uses 64×64.
+## Installation and initial configuration
 
-## Persistent configuration
-
-DSM provides `/var/packages/PKGSenderNAS/var` as the package app-data area. On first install, `postinst` creates:
+Install the SPK matching the DSM version and NAS CPU architecture using **Package Center → Manual Install**. Both editions store editable settings in:
 
 ```text
 /var/packages/PKGSenderNAS/var/config.env
 ```
 
-from the bundled example. Replace the two `CHANGE_ME_*` values and set the PKG library path before starting:
+**DSM 7:** its current lifecycle script deliberately avoids launching the daemon until you replace the `CHANGE_ME_*` placeholders, set a readable existing library directory, and start the package. An example configuration:
 
 ```sh
 PKGSENDER_PACKAGE_DIR="/volume1/PS5/PKG"
 # Optional multi-root override:
 # PKGSENDER_PACKAGE_DIRS='["/volume1/PS5/PKG","/volume1/PS5/MorePKG"]'
 PKGSENDER_LISTEN=":9898"
-PKGSENDER_PUBLIC_BASE_URL="http://192.168.32.5:9898"
-PKGSENDER_PS5_IP="192.168.32.100"
+PKGSENDER_PUBLIC_BASE_URL="http://192.168.1.20:9898"
+PKGSENDER_PS5_IP="192.168.1.50"
 PKGSENDER_PS5_PORT="12800"
 ```
 
-If the config is missing or still contains `CHANGE_ME`, the lifecycle script reports that configuration is required and deliberately does not launch the daemon. This prevents an initial package install from failing solely because the NAS/PS5 addresses have not been entered yet.
+**DSM 6:** the friendly `dsm6/config.env.example` defaults to `PKGSENDER_PS5_IP=""`, `PKGSENDER_PUBLIC_BASE_URL=""` and `PKGSENDER_PACKAGE_DIR="/var/packages/PKGSenderNAS/var/packages"`. The startup script creates the default library directory when needed, so you can start the service, open `http://<NAS-IP>:9898/ui/`, and use **Save PS5 IP** / **PKG Library paths** to enter your own settings. When the public base URL is empty, the daemon builds package download URLs using the HTTP request Host; access it through a LAN address reachable by the PS5.
+
+After the daemon starts, both editions can update PS5 IP and PKG library paths from the Web UI. `PKGSENDER_PACKAGE_DIRS` (JSON array) takes precedence over `PKGSENDER_PACKAGE_DIR`. You must still grant the appropriate read/traverse permissions on your shared folders. The PS5 must separately run `pkg-receiver.elf`; the NAS package does **not** send/load this payload.
+
+The DSM menu icon and direct URL both point to port **9898**. Do not run a Docker copy and the native package on the same TCP port. An older installation may require an SPK upgrade/reinstall and refreshing the DSM browser session to pick up changed launcher resources; the shortcut's actual appearance still requires device-side verification.
 
 ## Shared-folder permission
 
-The native process runs as the package identity rather than root. In DSM Shared Folder permissions, grant the system-internal user associated with **PS5 PKG Sender / PKGSenderNAS** read/traverse access to every directory configured by `PKGSENDER_PACKAGE_DIR` or `PKGSENDER_PACKAGE_DIRS`. Write permission is not required.
+DSM 7 runs under the configured package identity, not root. In DSM Shared Folder permissions, grant the system-internal user associated with **PS5 PKG Sender / PKGSenderNAS** read/traverse access to every directory configured by `PKGSENDER_PACKAGE_DIR` or `PKGSENDER_PACKAGE_DIRS`. Check effective access on DSM 6 as well; its package layout and execution account rules differ from DSM 7. Write permission to the PKG library is not required.
 
 On DSM installations where the shared folder uses Synology ACLs, Unix mode bits alone may not be sufficient. Grant the package identity read/traverse access to the library path and its existing descendants. The DS1517+ migration target required an explicit `PKGSenderNAS` read/traverse ACE because the shared-folder ACL otherwise denied the package user even though the directory mode was permissive.
 
@@ -96,18 +102,18 @@ The package intentionally does not declare `adminport` or DSM port ownership for
 
 ## Safe DSM validation
 
-`verify.sh` is the primary pre-install gate. It checks the SPK layout, lifecycle script syntax, required DSM metadata, embedded icon fields, payload contents, executable mode, UDP `12801` discovery declaration, absence of duplicate TCP `9898` ownership, and the MD5 recorded for `package.tgz`.
+`verify.sh` (DSM 7) and `verify-dsm6.sh` (DSM 6) are the pre-install structure gates. They check SPK layout, lifecycle-script syntax, metadata, checksums, payload executable mode, the DSM `.url` application shortcut, and all seven application-menu icon assets. DSM 7 additionally validates its privilege/resource declarations; DSM 6 additionally checks the friendly startup defaults and the 72px Package Center icon. The separate Node UI suite verifies DLC folding/search, PS5-only online/offline status, and bilingual labels.
 
-For hardware validation without installation, copy the SPK to the NAS, unpack it into a temporary directory, and execute the extracted binary with an empty environment. On the DS1517+ test target the x86_64 binary executes and fails closed on the missing `PKGSENDER_PS5_IP`, which proves the packaged Linux binary is runnable without binding a port.
+These checks are **not substitutes for installing the release on real DSM hardware**. Historical DSM 7.2.2 / DS1517+ smoke tests showed that the earlier x86_64 binary executed on Linux and correctly rejected missing required configuration. The current DSM 6 package intentionally allows missing PS5 IP during initial startup.
 
 DSM 7.2.2 also exposes `synopkg query <spk>`, but it is not used as a blocking validation gate here. On the test NAS it returns the same generic failure for a temporary SPK reconstructed from an already-installed custom package, so that result is not specific enough to distinguish a malformed hand-built SPK.
 
 
 ## Real-hardware migration acceptance
 
-DSM 7.2.2 on DS1517+ (`x86_64`, `avoton`) has passed the native-package, discovery, persistent-history, FIFO-queue, persistence-failure, queued-cancellation, queued-reordering, localized-title, Japanese-fallback, local-alias, alias-export, alias-import, bilingual-UI, configurable PS5 target, DSM UI-entry, and payload-sender-removal gates through `0.1.0-0020`:
+The following results are **historical acceptance records for earlier DSM 7.2.2 / DS1517+ (`x86_64`, `avoton`) builds through `0.1.0-0020`**, not hardware acceptance for the v0.1.1 application shortcut, DSM 6 compatibility, or ARM64:
 
-- upgrades preserve `config.env` byte-for-byte and restart cleanly; production currently runs `0.1.0-0020`;
+- upgrades preserved `config.env` byte-for-byte and restarted cleanly; the test NAS was running `0.1.0-0020` when this acceptance record was captured;
 - the daemon runs as `PKGSenderNAS:PKGSenderNAS`, not root, and the package identity can read the existing PS5 PKG library through Synology ACLs;
 - DSM registers only `12801/udp` for discovery; the configured PS5 at `192.168.32.100` remains beacon-online;
 - `/health` reports all 5 PKGs and HTTP Range remains `206 Partial Content` after both queue-stage upgrades;

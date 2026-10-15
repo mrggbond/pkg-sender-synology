@@ -21,6 +21,9 @@ Not included yet: automatic retry, image/folder copy, PS4/GoldHEN support.
 - `GET /api/transfers`
 - `GET /api/history`
 - `GET /api/discovery`
+- `GET /api/settings`
+- `POST /api/settings/ps5`
+- `POST /api/settings/libraries`
 - `POST /api/rescan`
 - `POST /api/install/{id}`
 - `POST /api/retry/{historyId}`
@@ -101,29 +104,32 @@ The NAS listens on UDP `12801` for the receiver's `PKGSENDER v1` beacon. The rec
 
 `GET /api/discovery` returns the configured PS5 target plus any discovered receiver IPs. A receiver is considered online when a beacon was seen within the last 10 seconds. Discovery is informational in this stage: installs still use `PKGSENDER_PS5_IP`, and a listener failure never blocks scanning, Range serving, or installation through the configured target.
 
-The embedded UI reports whether the configured PS5 is currently visible by beacon. It does not silently replace or persist the configured PS5 address.
+The embedded UI shows only the configured PS5's online/offline status (green/red); it does not show NAS online/offline status or silently replace or persist the configured PS5 address. The PS5 IP can be entered and saved separately from the status area.
 
 ## Web UI
 
 Open `http://NAS_IP:9898/ui/` in a browser. The embedded UI has no third-party runtime dependencies and provides:
 
-- Title-ID family grouping with nested Game/Patch/DLC package rows;
+- Title-ID family grouping with Game and Patch rows always visible and per-family DLC rows collapsed by default; each game has its own Show/Hide DLC control (English/Chinese), expanded state survives polling refreshes, and search always reveals matching DLC rows;
 - PKG metadata listing and filtering, including English primary titles and Chinese/Japanese/local-alias secondary titles when available;
 - manual library rescan;
 - an Install action with confirmation;
 - a persistent FIFO install queue with explicit manual Retry for failed/interrupted attempts and Cancel for records that are still queued;
 - live in-memory transfer status and byte-accurate percentage polling once per second.
 - recent persistent install/transfer history with receiver, transfer, and install-outcome semantics kept separate.
-- passive PS5 receiver discovery status from UDP `12801`.
+- passive PS5 receiver discovery status from UDP `12801`, displaying only the configured PS5's online/offline indicator;
+- editable PS5 IP and one or more PKG library paths via `/api/settings/ps5` and `/api/settings/libraries`, with bilingual UI labels.
 
 The UI uses the existing same-origin JSON API and does not add a second listening port.
 
 ## Configuration
 
-Required:
+For **Docker and the current DSM 7 native SPK**, configure these values before expecting to install packages (the DSM 7 startup script specifically refuses to launch its daemon until valid initial values are supplied):
 
 - `PKGSENDER_PS5_IP`: PS5 LAN IP running `pkg-receiver.elf`.
 - `PKGSENDER_PUBLIC_BASE_URL=http://<NAS-LAN-IP>:9898`: explicit NAS LAN URL that the PS5 can reach.
+
+The **DSM 6 friendly SPK** can start with an empty PS5 IP and an empty public base URL, then accepts PS5 IP / PKG directory settings from the Web UI. With an empty public base URL the service derives package URLs from the incoming HTTP request Host; use a NAS LAN address reachable by the PS5.
 
 Optional:
 
@@ -152,11 +158,11 @@ The package directory is mounted read-only. The container does not need privileg
 
 ## Native DSM package
 
-A native DSM 7 SPK build is available under `spk/`. It packages the same Go server as a static Linux binary, runs under DSM's package identity, keeps configuration in the package app-data directory, and does not require Container Manager. See `spk/README.md` for build and migration details.
+Native SPKs for **DSM 6 x86_64**, **DSM 7 x86_64**, and **DSM 7 armv8** are available in [GitHub Release v0.1.1](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.1). They package the Go sender as a static Linux binary, use package app-data storage, and do not require Container Manager. The DSM shortcut opens `http://<NAS-IP>:9898/ui/` and carries a complete application-menu icon set. DSM 6 has a 72px Package Center icon and starts with friendly defaults; DSM 7 uses a 64px Package Center icon and requires initial manual config before the daemon starts. See `spk/README.md` for full instructions.
 
 The Docker and native package variants both use port 9898 by default. Do not start both at the same time.
 
-Real-hardware acceptance on DSM 7.2.2 / DS1517+ is current through SPK `0.1.0-0021`. The full FIFO behavior was exercised with the `0007` binary using localhost-only sender/receiver endpoints: first-active/second-queued serialization, restart conversion of an accepted active record to `interrupted` without replay, automatic resume of a still-queued record, explicit Retry creating a new `retryOf` record, FIFO release only after a complete HTTP transfer, and `0600` package-owned persistence all passed. `0008` added corrupt-persistence fail-closed behavior; `0009` added fail-closed in-memory rollback and FIFO position display. `0010` passed queued-only cancellation. `0011` passed an in-place production upgrade and an isolated reordering gate. `0012` added localized title display from PKG metadata. `0013` adds Japanese subtitle fallback plus offline local alias fallback and missing-alias export. `0014` adds an AI-prompt export package and Web UI copy action for manual alias curation. `0015` adds paste-and-import alias JSON with atomic write, merge, reload, and immediate rescan. `0016` adds browser-language based Chinese/English Web UI localization, a manual language switch, simplified package metadata rows, relative-path-only display, and Installed/已安装 reinstall confirmation behavior. `0017` adds configurable PS5 target IP and DSM UI entry. `0018` removes the path label prefix, keeps the language switch at the far right, and makes Installed/已安装 buttons gray while preserving reinstall confirmation behavior. `0020` removes NAS-side payload sending, places the PS5 IP controls in the status row, and makes online/offline state bold with green/red coloring. `0021` adds Web-configurable multi-root PKG library paths via `PKGSENDER_PACKAGE_DIRS` while preserving single-root `PKGSENDER_PACKAGE_DIR` compatibility. Production remains healthy with 5+ PKGs, PS5 beacon status available, Range 206, and the previous Docker container stopped as a rollback path.
+**Verification status:** v0.1.1 passed local Go/UI tests, builds, SPK structure checks, and packaged UI icon audits, but **has not been installed and verified on DSM hardware**. Historical real-hardware acceptance on DSM 7.2.2 / DS1517+ (x86_64) used older SPKs, with feature verification documented through `0.1.0-0021`. The following is a historical engineering record, not a claim that v0.1.1 or the DSM 6 / armv8 builds passed hardware tests. The full FIFO behavior was exercised with the `0007` binary using localhost-only sender/receiver endpoints: first-active/second-queued serialization, restart conversion of an accepted active record to `interrupted` without replay, automatic resume of a still-queued record, explicit Retry creating a new `retryOf` record, FIFO release only after a complete HTTP transfer, and `0600` package-owned persistence all passed. `0008` added corrupt-persistence fail-closed behavior; `0009` added fail-closed in-memory rollback and FIFO position display. `0010` passed queued-only cancellation. `0011` passed an in-place production upgrade and an isolated reordering gate. `0012` added localized title display from PKG metadata. `0013` adds Japanese subtitle fallback plus offline local alias fallback and missing-alias export. `0014` adds an AI-prompt export package and Web UI copy action for manual alias curation. `0015` adds paste-and-import alias JSON with atomic write, merge, reload, and immediate rescan. `0016` adds browser-language based Chinese/English Web UI localization, a manual language switch, simplified package metadata rows, relative-path-only display, and Installed/已安装 reinstall confirmation behavior. `0017` adds configurable PS5 target IP and DSM UI entry. `0018` removes the path label prefix, keeps the language switch at the far right, and makes Installed/已安装 buttons gray while preserving reinstall confirmation behavior. `0020` removes NAS-side payload sending, places the PS5 IP controls in the status row, and makes online/offline state bold with green/red coloring. `0021` adds Web-configurable multi-root PKG library paths via `PKGSENDER_PACKAGE_DIRS` while preserving single-root `PKGSENDER_PACKAGE_DIR` compatibility. Production remains healthy with 5+ PKGs, PS5 beacon status available, Range 206, and the previous Docker container stopped as a rollback path.
 
 ## Smoke test
 
@@ -265,6 +271,14 @@ On restart, records that were still `queued` remain queued and are resumed only 
 When `PKGSENDER_HISTORY_FILE` is configured, history and queue state are stored together in a versioned JSON file using same-directory temporary-file write, `fsync`, and atomic rename. Enqueue and the transition to `submitting` are persisted before any receiver network request is made. Progress writes are throttled to the first observed progress, at most once every five seconds, and immediately on transfer completion. Queue/control terminal-state changes are written immediately. Retention never drops `queued`, `submitting`, or `active` records even if the normal 100-record history limit is exceeded.
 
 If the configured persistence file is corrupt, unreadable, or otherwise unavailable at startup, the service does not overwrite it and does not silently switch the install queue to memory-only. Package listing, metadata, covers, health, discovery, and Range serving continue; Install, Retry, Cancel, and Reorder mutations fail closed with HTTP 503 until persistence is repaired.
+
+The v0.1.1 UI regression suite is also runnable independently from the repository root:
+
+```sh
+node --test nas/internal/httpserver/ui.test.cjs
+```
+
+It checks DLC collapse/refresh/search behavior, the PS5-only connectivity indicator, and Chinese/English labels.
 
 ## Local development
 

@@ -8,39 +8,49 @@ This fork packages a lightweight Go-based NAS service that lets a PS5 running `p
 
 ## Current release
 
-Current validated Synology build: `0.1.0-0021`.
+Latest GitHub Release: **[v0.1.1](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.1)**.
 
-Validated hardware/software target:
+Download the SPK matching **both** the DSM version and NAS CPU architecture:
 
-- Synology DSM 7.2.2
-- DS1517+ / x86_64
-- PS5 receiver endpoint: `http://<ps5-ip>:12800/api/install`
+| Release asset | Target |
+| --- | --- |
+| `PKGSenderNAS-0.1.1-x86_64.spk` | DSM 7, x86_64 (Intel/AMD) |
+| `PKGSenderNAS-0.1.1-armv8.spk` | DSM 7, armv8 (ARM64) |
+| `PKGSenderNAS-0.1.1-dsm6-x86_64.spk` | DSM 6, x86_64 (Intel/AMD) |
+| `pkg-receiver.elf` | Optional PS5 receiver payload; load it separately on the PS5 |
+
+All three v0.1.1 SPKs passed local Go tests, package build and archive checks. **On-device v0.1.1 installation and DSM launcher validation have not yet been confirmed.** Historical physical-NAS acceptance was performed on DSM 7.2.2 / DS1517+ (x86_64) with earlier builds. DSM 6 and DSM 7 ARM64 remain hardware-unverified.
+
+## What's new in v0.1.1
+
+- DLC rows start **collapsed per game** with independent Show/Hide controls. Expanded state persists across automatic refreshes, and searches expose matching DLC files even when their group is collapsed.
+- The connectivity area shows **PS5 online/offline only** (green/red); the NAS status indicator was removed. PS5 IP entry and saving remain available.
+- Fixed the DSM application-menu shortcut configuration and included correctly sized launcher icons. The shortcut opens `http://<NAS-IP>:9898/ui/`.
+- Added a DSM 6 x86_64 SPK with startup-before-configuration support and a DSM 6-sized Package Center icon.
 
 ## Features
 
-- Native Synology DSM package (`PKGSenderNAS`).
-- DSM app entry that opens the Web UI.
-- Web UI for browsing PKG libraries and installing packages.
-- Configurable PS5 IP from the Web UI.
-- Configurable PKG library paths from the Web UI, including multiple NAS directories.
-- Recursive PKG scanning with stable opaque package IDs.
-- HTTP file serving with Range and HEAD support.
-- PS5 PKG metadata parsing for title, localized titles, Title ID, Content ID, version, and package type.
-- Game family grouping by Title ID.
-- Local title alias import/export workflow for manual title curation.
-- Persistent install history and FIFO queue with retry, cancel, and reorder controls.
-- UDP discovery status display for the PS5 receiver.
-- Chinese / English Web UI language switch.
+- Native Synology SPKs for DSM 6 x86_64 and DSM 7 x86_64/armv8, without requiring Container Manager.
+- DSM application-menu shortcut to the browser-based Web UI, plus direct access at `http://<NAS-IP>:9898/ui/`.
+- Web UI configuration of PS5 IP and multiple PKG library directories.
+- Game families grouped by Title ID; Game and Patch rows remain visible while DLC starts collapsed.
+- Recursive PKG scanning, HTTP Range/HEAD serving, and metadata parsing (title, localized titles, IDs, version and Game/Patch/DLC classification).
+- Local title-alias import/export for manual title curation.
+- Persistent installation history, sequential FIFO queue, Retry, queued-only Cancel, and queued Up/Down controls.
+- UDP receiver-beacon discovery, with **only the configured PS5's online/offline state** shown in the UI.
+- English/Chinese language switch.
 
-## How it works
+## Install and first use
 
-1. Load `pkg-receiver.elf` on the PS5 through your normal PS5 WebKit/exploit flow.
-2. The receiver listens on port `12800`.
-3. Run the Synology SPK on the NAS.
-4. Configure the PS5 IP and one or more PKG library paths in the Web UI.
-5. Click Install. The NAS sends an install request to the PS5 receiver, and the PS5 pulls the PKG from the NAS over HTTP.
+1. Download the correct SPK from the [v0.1.1 release](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.1) and install it manually in DSM Package Center.
+2. **DSM 6:** the friendly package starts with an empty PS5 IP and a package-owned default PKG directory. Open `http://<NAS-IP>:9898/ui/`, set **PS5 IP** and **PKG Library paths**, then save. Its public package URL is derived from the incoming HTTP request host when not explicitly configured.
+3. **DSM 7:** the current package **does not start its daemon before initial configuration**. Edit `/var/packages/PKGSenderNAS/var/config.env` to replace `CHANGE_ME_NAS_IP` and `CHANGE_ME_PS5_IP` and set an existing readable PKG directory; then start the package. After startup, PS5 IP and library paths can be changed in the Web UI.
+4. Load `pkg-receiver.elf` on the PS5 through your normal PS5 WebKit/exploit flow. The receiver listens on TCP `12800`; the NAS listens for its UDP beacon on `12801`.
+5. Open the DSM application menu shortcut or `http://<NAS-IP>:9898/ui/` and click **Install** on a selected PKG. The PS5 pulls the PKG from the NAS over HTTP.
 
-The NAS does not send or load the PS5 payload. Payload loading is outside this SPK's scope.
+The NAS **does not send or load the PS5 payload**. Loading the ELF is a separate PS5-side step. Use this service on a trusted LAN. Grant the package's system-internal user read/traverse permission to configured shared folders. **Do not run the native SPK and a Docker instance on the same TCP port 9898 simultaneously.**
+
+For configuration details and upgrade notes, see [native SPK instructions](nas/spk/README.md).
 
 ## Docker
 
@@ -52,45 +62,38 @@ docker pull ghcr.io/mrggbond/pkg-sender-synology:latest
 
 ## Build
 
-The Synology package lives under `nas/spk`.
+The native SPK build scripts live in `nas/spk/` and require Go 1.24 or newer. From the repository root:
 
 ```sh
-cd nas
-ARCH=x86_64 GO_BIN=/path/to/go ./spk/build.sh
+# DSM 7 x86_64
+GO_BIN=/path/to/go ./nas/spk/build.sh
+
+# DSM 7 ARM64
+ARCH=armv8 GO_BIN=/path/to/go ./nas/spk/build.sh
+
+# DSM 6 x86_64
+GO_BIN=/path/to/go ./nas/spk/build-dsm6.sh
+
+# Standalone browser UI tests
+node --test nas/internal/httpserver/ui.test.cjs
 ```
 
-The output is written to:
-
-```text
-nas/spk/dist/PKGSenderNAS-<version>-x86_64.spk
-```
-
-ARMv8 build target:
-
-```sh
-cd nas
-ARCH=armv8 GO_BIN=/path/to/go ./spk/build.sh
-```
+Packages are created in `nas/spk/dist/`, with `0.1.1` as the default package version. SPK packaging is separate from Docker image publishing.
 
 ## Configuration
 
-The native SPK stores runtime configuration under the DSM package app-data directory:
-
-```text
-/var/packages/PKGSenderNAS/var/config.env
-```
-
-Important settings:
+Native SPKs keep their editable configuration at `/var/packages/PKGSenderNAS/var/config.env`. DSM 7 needs valid initial `PKGSENDER_PUBLIC_BASE_URL`, `PKGSENDER_PS5_IP`, and `PKGSENDER_PACKAGE_DIR` values **before its daemon starts**. Example:
 
 ```sh
-PKGSENDER_PUBLIC_BASE_URL="http://<nas-ip>:9898"
-PKGSENDER_PS5_IP="<ps5-ip>"
+PKGSENDER_PUBLIC_BASE_URL="http://192.168.1.20:9898"
+PKGSENDER_PS5_IP="192.168.1.50"
 PKGSENDER_PS5_PORT="12800"
 PKGSENDER_PACKAGE_DIR="/volume1/PS5/PKG"
-PKGSENDER_PACKAGE_DIRS='["/volume1/PS5/PKG","/volume1/More/PKG"]'
+# Optional multi-root override:
+# PKGSENDER_PACKAGE_DIRS='["/volume1/PS5/PKG","/volume1/More/PKG"]'
 ```
 
-`PKGSENDER_PACKAGE_DIRS` is preferred when present. `PKGSENDER_PACKAGE_DIR` remains supported for older single-library deployments.
+DSM 6 instead ships with an empty PS5 IP, empty public base URL and a package-owned default library directory, so its service can start before Web UI configuration. When set, `PKGSENDER_PACKAGE_DIRS` takes precedence over the legacy single-root `PKGSENDER_PACKAGE_DIR`. Shared-folder access still depends on Synology permissions.
 
 ## Documentation
 
