@@ -4,15 +4,15 @@ This directory builds native Synology packages for the Go sender, independently 
 
 ## Release and compatibility
 
-Latest package release: **[v0.1.2](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.2)**.
+Latest package release: **[v0.1.3](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.3)**.
 
 | Package | DSM version | Architecture | Startup behavior |
 | --- | --- | --- | --- |
-| `PKGSenderNAS-0.1.2-x86_64.spk` | DSM 7 | x86_64 / Intel-AMD | Start first, then configure in Web UI |
-| `PKGSenderNAS-0.1.2-armv8.spk` | DSM 7 | armv8 / ARM64 | Start first, then configure in Web UI |
-| `PKGSenderNAS-0.1.2-dsm6-x86_64.spk` | DSM 6 | x86_64 / Intel-AMD | Can start before PS5/library configuration |
+| `PKGSenderNAS-0.1.3-x86_64.spk` | DSM 7 | x86_64 / Intel-AMD | Start first, then configure in Web UI |
+| `PKGSenderNAS-0.1.3-armv8.spk` | DSM 7 | armv8 / ARM64 | Start first, then configure in Web UI |
+| `PKGSenderNAS-0.1.3-dsm6-x86_64.spk` | DSM 6 | x86_64 / Intel-AMD | Can start before PS5/library configuration |
 
-The DSM 7.2.2 / DS1517+ x86_64 platform was the historical real-hardware target. **v0.1.2 has passed local tests and package/asset inspection, but no v0.1.2 installation or DSM launcher hardware acceptance has been recorded.** DSM 6 and DSM 7 armv8 are not hardware-validated.
+The DSM 7.2.2 / DS1517+ x86_64 platform was the historical real-hardware target. **v0.1.3 has passed local tests and package/asset inspection, but no v0.1.3 installation or DSM launcher hardware acceptance has been recorded.** DSM 6 and DSM 7 armv8 are not hardware-validated.
 
 DSM 7 installs with `conf/privilege` (`run-as: package`); DSM 6 uses a separate legacy SPK layout and startup script. Package Center icon resources are 64×64 (DSM 7) or 72×72 (DSM 6), with a 256×256 icon also bundled. Both editions include 16/24/32/48/64/72/256px application-menu icons. Their `ui/config` uses DSM's `.url` launcher definition targeting `http://<NAS-IP>:9898/ui/`.
 
@@ -37,7 +37,7 @@ node --test ../internal/httpserver/ui.test.cjs
 ./test-dsm7-bootstrap.sh
 ```
 
-Build scripts default to version `0.1.2` and write packages into `dist/`. They run Go tests, cross-build static Linux executables, build the SPK archive, and run their respective `verify.sh` or `verify-dsm6.sh` checks. The packaging process does **not** publish Docker images or GitHub Releases.
+Build scripts default to version `0.1.3` and write packages into `dist/`. They run Go tests, cross-build static Linux executables, build the SPK archive, and run their respective `verify.sh` or `verify-dsm6.sh` checks. The packaging process does **not** publish Docker images or GitHub Releases.
 
 ## Installation and initial configuration
 
@@ -116,7 +116,7 @@ DSM 7.2.2 also exposes `synopkg query <spk>`, but it is not used as a blocking v
 
 ## Real-hardware migration acceptance
 
-The following results are **historical acceptance records for earlier DSM 7.2.2 / DS1517+ (`x86_64`, `avoton`) builds through `0.1.0-0020`**, not hardware acceptance for the v0.1.2 application shortcut, DSM 6 compatibility, or ARM64:
+The following results are **historical acceptance records for earlier DSM 7.2.2 / DS1517+ (`x86_64`, `avoton`) builds through `0.1.0-0020`**, not hardware acceptance for the v0.1.3 application shortcut, DSM 6 compatibility, or ARM64:
 
 - upgrades preserved `config.env` byte-for-byte and restarted cleanly; the test NAS was running `0.1.0-0020` when this acceptance record was captured;
 - the daemon runs as `PKGSenderNAS:PKGSenderNAS`, not root, and the package identity can read the existing PS5 PKG library through Synology ACLs;

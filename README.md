@@ -8,20 +8,26 @@ This fork packages a lightweight Go-based NAS service that lets a PS5 running `p
 
 ## Current release
 
-Latest GitHub Release: **[v0.1.2](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.2)**.
+Latest GitHub Release: **[v0.1.3](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.3)**.
 
 Download the SPK matching **both** the DSM version and NAS CPU architecture:
 
 | Release asset | Target |
 | --- | --- |
-| `PKGSenderNAS-0.1.2-x86_64.spk` | DSM 7, x86_64 (Intel/AMD) |
-| `PKGSenderNAS-0.1.2-armv8.spk` | DSM 7, armv8 (ARM64) |
-| `PKGSenderNAS-0.1.2-dsm6-x86_64.spk` | DSM 6, x86_64 (Intel/AMD) |
+| `PKGSenderNAS-0.1.3-x86_64.spk` | DSM 7, x86_64 (Intel/AMD) |
+| `PKGSenderNAS-0.1.3-armv8.spk` | DSM 7, armv8 (ARM64) |
+| `PKGSenderNAS-0.1.3-dsm6-x86_64.spk` | DSM 6, x86_64 (Intel/AMD) |
 | `pkg-receiver.elf` | Optional PS5 receiver payload; load it separately on the PS5 |
 
-All three v0.1.2 SPKs passed local Go tests, package build and archive checks. **On-device v0.1.2 installation and DSM launcher validation have not yet been confirmed.** Historical physical-NAS acceptance was performed on DSM 7.2.2 / DS1517+ (x86_64) with earlier builds. DSM 6 and DSM 7 ARM64 remain hardware-unverified.
+All three v0.1.3 SPKs passed local Go tests, package build and archive checks. **On-device v0.1.3 installation and DSM launcher validation have not yet been confirmed.** Historical physical-NAS acceptance was performed on DSM 7.2.2 / DS1517+ (x86_64) with earlier builds. DSM 6 and DSM 7 ARM64 remain hardware-unverified.
 
-## What's new in v0.1.2
+## What's new in v0.1.3
+
+- **Unknown-type PKGs now collapse with DLC** by default. The existing Show/Hide DLC button counts both types while expanded entries retain their original **Unknown** classification.
+- Searching reveals matching DLC and Unknown files; expanded groups remain independent by game and keep their state through automatic refresh.
+- DSM 6 and DSM 7 packages include the same bilingual behavior.
+
+## Improvements carried over from previous releases
 
 - DLC rows start **collapsed per game** with independent Show/Hide controls. Expanded state persists across automatic refreshes, and searches expose matching DLC files even when their group is collapsed.
 - The connectivity area shows **PS5 online/offline only** (green/red); the NAS status indicator was removed. PS5 IP entry and saving remain available.
@@ -33,7 +39,7 @@ All three v0.1.2 SPKs passed local Go tests, package build and archive checks. *
 - Native Synology SPKs for DSM 6 x86_64 and DSM 7 x86_64/armv8, without requiring Container Manager.
 - DSM application-menu shortcut to the browser-based Web UI, plus direct access at `http://<NAS-IP>:9898/ui/`.
 - Web UI configuration of PS5 IP and multiple PKG library directories.
-- Game families grouped by Title ID; Game and Patch rows remain visible while DLC starts collapsed.
+- Game families grouped by Title ID; Game, Patch and App rows remain visible while DLC and Unknown-type files start collapsed.
 - Recursive PKG scanning, HTTP Range/HEAD serving, and metadata parsing (title, localized titles, IDs, version and Game/Patch/DLC classification).
 - Local title-alias import/export for manual title curation.
 - Persistent installation history, sequential FIFO queue, Retry, queued-only Cancel, and queued Up/Down controls.
@@ -42,7 +48,7 @@ All three v0.1.2 SPKs passed local Go tests, package build and archive checks. *
 
 ## Install and first use
 
-1. Download the correct SPK from the [v0.1.2 release](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.2) and install it manually in DSM Package Center.
+1. Download the correct SPK from the [v0.1.3 release](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.3) and install it manually in DSM Package Center.
 2. **DSM 6:** the friendly package starts with an empty PS5 IP and a package-owned default PKG directory. Open `http://<NAS-IP>:9898/ui/`, set **PS5 IP** and **PKG Library paths**, then save. Its public package URL is derived from the incoming HTTP request host when not explicitly configured.
 3. **DSM 7:** starting with v0.1.2, the package also starts before configuration. Open the DSM app shortcut or `http://<NAS-IP>:9898/ui/`, then save **PS5 IP** and **PKG Library paths** in the Web UI. You no longer need to edit `config.env` during a fresh install. Upgrades preserve existing configuration; old `CHANGE_ME_*` values are handled in memory only. A custom inaccessible library still requires fixing its path or permissions.
 4. Load `pkg-receiver.elf` on the PS5 through your normal PS5 WebKit/exploit flow. The receiver listens on TCP `12800`; the NAS listens for its UDP beacon on `12801`.
@@ -78,7 +84,7 @@ GO_BIN=/path/to/go ./nas/spk/build-dsm6.sh
 node --test nas/internal/httpserver/ui.test.cjs
 ```
 
-Packages are created in `nas/spk/dist/`, with `0.1.2` as the default package version. SPK packaging is separate from Docker image publishing.
+Packages are created in `nas/spk/dist/`, with `0.1.3` as the default package version. SPK packaging is separate from Docker image publishing.
 
 ## Configuration
 
