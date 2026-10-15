@@ -8,25 +8,25 @@ This fork packages a lightweight Go-based NAS service that lets a PS5 running `p
 
 ## Current release
 
-Latest GitHub Release: **[v0.1.1](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.1)**.
+Latest GitHub Release: **[v0.1.2](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.2)**.
 
 Download the SPK matching **both** the DSM version and NAS CPU architecture:
 
 | Release asset | Target |
 | --- | --- |
-| `PKGSenderNAS-0.1.1-x86_64.spk` | DSM 7, x86_64 (Intel/AMD) |
-| `PKGSenderNAS-0.1.1-armv8.spk` | DSM 7, armv8 (ARM64) |
-| `PKGSenderNAS-0.1.1-dsm6-x86_64.spk` | DSM 6, x86_64 (Intel/AMD) |
+| `PKGSenderNAS-0.1.2-x86_64.spk` | DSM 7, x86_64 (Intel/AMD) |
+| `PKGSenderNAS-0.1.2-armv8.spk` | DSM 7, armv8 (ARM64) |
+| `PKGSenderNAS-0.1.2-dsm6-x86_64.spk` | DSM 6, x86_64 (Intel/AMD) |
 | `pkg-receiver.elf` | Optional PS5 receiver payload; load it separately on the PS5 |
 
-All three v0.1.1 SPKs passed local Go tests, package build and archive checks. **On-device v0.1.1 installation and DSM launcher validation have not yet been confirmed.** Historical physical-NAS acceptance was performed on DSM 7.2.2 / DS1517+ (x86_64) with earlier builds. DSM 6 and DSM 7 ARM64 remain hardware-unverified.
+All three v0.1.2 SPKs passed local Go tests, package build and archive checks. **On-device v0.1.2 installation and DSM launcher validation have not yet been confirmed.** Historical physical-NAS acceptance was performed on DSM 7.2.2 / DS1517+ (x86_64) with earlier builds. DSM 6 and DSM 7 ARM64 remain hardware-unverified.
 
-## What's new in v0.1.1
+## What's new in v0.1.2
 
 - DLC rows start **collapsed per game** with independent Show/Hide controls. Expanded state persists across automatic refreshes, and searches expose matching DLC files even when their group is collapsed.
 - The connectivity area shows **PS5 online/offline only** (green/red); the NAS status indicator was removed. PS5 IP entry and saving remain available.
 - Fixed the DSM application-menu shortcut configuration and included correctly sized launcher icons. The shortcut opens `http://<NAS-IP>:9898/ui/`.
-- Added a DSM 6 x86_64 SPK with startup-before-configuration support and a DSM 6-sized Package Center icon.
+- Both DSM 6 and DSM 7 SPKs now start with safe, package-owned defaults, allowing first-time setup from the Web UI without manually editing `config.env`. DSM 7 upgrades preserve existing settings; legacy placeholders are handled at runtime.
 
 ## Features
 
@@ -42,9 +42,9 @@ All three v0.1.1 SPKs passed local Go tests, package build and archive checks. *
 
 ## Install and first use
 
-1. Download the correct SPK from the [v0.1.1 release](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.1) and install it manually in DSM Package Center.
+1. Download the correct SPK from the [v0.1.2 release](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.2) and install it manually in DSM Package Center.
 2. **DSM 6:** the friendly package starts with an empty PS5 IP and a package-owned default PKG directory. Open `http://<NAS-IP>:9898/ui/`, set **PS5 IP** and **PKG Library paths**, then save. Its public package URL is derived from the incoming HTTP request host when not explicitly configured.
-3. **DSM 7:** the current package **does not start its daemon before initial configuration**. Edit `/var/packages/PKGSenderNAS/var/config.env` to replace `CHANGE_ME_NAS_IP` and `CHANGE_ME_PS5_IP` and set an existing readable PKG directory; then start the package. After startup, PS5 IP and library paths can be changed in the Web UI.
+3. **DSM 7:** starting with v0.1.2, the package also starts before configuration. Open the DSM app shortcut or `http://<NAS-IP>:9898/ui/`, then save **PS5 IP** and **PKG Library paths** in the Web UI. You no longer need to edit `config.env` during a fresh install. Upgrades preserve existing configuration; old `CHANGE_ME_*` values are handled in memory only. A custom inaccessible library still requires fixing its path or permissions.
 4. Load `pkg-receiver.elf` on the PS5 through your normal PS5 WebKit/exploit flow. The receiver listens on TCP `12800`; the NAS listens for its UDP beacon on `12801`.
 5. Open the DSM application menu shortcut or `http://<NAS-IP>:9898/ui/` and click **Install** on a selected PKG. The PS5 pulls the PKG from the NAS over HTTP.
 
@@ -78,11 +78,11 @@ GO_BIN=/path/to/go ./nas/spk/build-dsm6.sh
 node --test nas/internal/httpserver/ui.test.cjs
 ```
 
-Packages are created in `nas/spk/dist/`, with `0.1.1` as the default package version. SPK packaging is separate from Docker image publishing.
+Packages are created in `nas/spk/dist/`, with `0.1.2` as the default package version. SPK packaging is separate from Docker image publishing.
 
 ## Configuration
 
-Native SPKs keep their editable configuration at `/var/packages/PKGSenderNAS/var/config.env`. DSM 7 needs valid initial `PKGSENDER_PUBLIC_BASE_URL`, `PKGSENDER_PS5_IP`, and `PKGSENDER_PACKAGE_DIR` values **before its daemon starts**. Example:
+Native SPKs keep their editable configuration at `/var/packages/PKGSenderNAS/var/config.env`. **Both DSM 6 and DSM 7 v0.1.2** start with a package-owned empty library and blank PS5 IP, allowing setup in the Web UI after starting. To configure a fixed public URL or edit advanced settings manually, use:
 
 ```sh
 PKGSENDER_PUBLIC_BASE_URL="http://192.168.1.20:9898"
@@ -93,7 +93,7 @@ PKGSENDER_PACKAGE_DIR="/volume1/PS5/PKG"
 # PKGSENDER_PACKAGE_DIRS='["/volume1/PS5/PKG","/volume1/More/PKG"]'
 ```
 
-DSM 6 instead ships with an empty PS5 IP, empty public base URL and a package-owned default library directory, so its service can start before Web UI configuration. When set, `PKGSENDER_PACKAGE_DIRS` takes precedence over the legacy single-root `PKGSENDER_PACKAGE_DIR`. Shared-folder access still depends on Synology permissions.
+The default public base URL is empty, so the NAS derives package URLs from the incoming HTTP request Host. Open the Web UI through a LAN address reachable from the PS5. When set, `PKGSENDER_PACKAGE_DIRS` takes precedence over the legacy single-root `PKGSENDER_PACKAGE_DIR`. Shared-folder access still depends on Synology permissions; upgrading preserves existing configured paths and other settings.
 
 ## Documentation
 

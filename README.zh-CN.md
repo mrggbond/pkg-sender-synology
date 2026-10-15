@@ -8,25 +8,25 @@
 
 ## 当前版本
 
-最新正式版本：**[v0.1.1](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.1)**。
+最新正式版本：**[v0.1.2](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.2)**。
 
 请根据 **DSM 系统版本和 NAS CPU 架构**选择安装包：
 
 | Release 附件 | 适用平台 |
 | --- | --- |
-| `PKGSenderNAS-0.1.1-x86_64.spk` | DSM 7，x86_64（Intel/AMD） |
-| `PKGSenderNAS-0.1.1-armv8.spk` | DSM 7，armv8（ARM64） |
-| `PKGSenderNAS-0.1.1-dsm6-x86_64.spk` | DSM 6，x86_64（Intel/AMD） |
+| `PKGSenderNAS-0.1.2-x86_64.spk` | DSM 7，x86_64（Intel/AMD） |
+| `PKGSenderNAS-0.1.2-armv8.spk` | DSM 7，armv8（ARM64） |
+| `PKGSenderNAS-0.1.2-dsm6-x86_64.spk` | DSM 6，x86_64（Intel/AMD） |
 | `pkg-receiver.elf` | 可选的 PS5 接收端 Payload，需在 PS5 端单独加载 |
 
-三个 v0.1.1 SPK 均已通过本地 Go 测试、构建及包结构校验。**尚未完成 v0.1.1 的真实 NAS 安装和 DSM 图标显示验收。**此前的真实硬件验收是在 DSM 7.2.2 / DS1517+（x86_64）上使用旧版完成；DSM 6 和 DSM 7 ARM64 仍待硬件验证。
+三个 v0.1.2 SPK 均已通过本地 Go 测试、构建及包结构校验。**尚未完成 v0.1.2 的真实 NAS 安装和 DSM 图标显示验收。**此前的真实硬件验收是在 DSM 7.2.2 / DS1517+（x86_64）上使用旧版完成；DSM 6 和 DSM 7 ARM64 仍待硬件验证。
 
-## v0.1.1 更新内容
+## v0.1.2 更新内容
 
 - **DLC 默认按游戏折叠**，每个游戏独立展开/收起；自动刷新不会丢失展开状态，搜索 DLC 时仍显示匹配文件。
 - **状态栏只显示 PS5 在线/离线**（绿色/红色），移除 NAS 在线标识；PS5 IP 输入及保存功能保持不变。
 - 修复 DSM 应用菜单入口配置，补齐不同尺寸的应用图标；点击后打开 `http://<NAS-IP>:9898/ui/`。
-- 新增 DSM 6 x86_64 友好版 SPK：允许先启动再配置，使用符合 DSM 6 尺寸的套件中心图标。
+- **DSM6 和 DSM7 均可安装后直接启动**，通过 Web UI 完成首次配置，无需手工编辑 `config.env`。DSM7 升级保留已有配置，对旧版占位符做运行时兼容。
 
 ## 功能
 
@@ -42,9 +42,9 @@
 
 ## 安装和首次使用
 
-1. 从 [v0.1.1 Release](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.1) 下载对应 SPK，在 DSM **套件中心手动安装**。
+1. 从 [v0.1.2 Release](https://github.com/mrggbond/pkg-sender-synology/releases/tag/v0.1.2) 下载对应 SPK，在 DSM **套件中心手动安装**。
 2. **DSM 6：**友好版默认 PS5 IP 为空，PKG 目录位于套件自身的数据目录，可以在尚未配置 PS5 时启动。打开 `http://<NAS-IP>:9898/ui/`，填写 **PS5 IP**、**PKG 库路径**并保存。未显式设置公网下载地址时，服务从 HTTP 请求的 Host 推导下载 URL。
-3. **DSM 7：**现有 SPK 的守护进程**不能在首次配置完成前启动**。先编辑 `/var/packages/PKGSenderNAS/var/config.env`，替换 `CHANGE_ME_NAS_IP`、`CHANGE_ME_PS5_IP`，并指定已存在且可读取的 PKG 目录，然后启动套件。启动后可继续在 Web UI 修改 PS5 IP 和 PKG 库路径。
+3. **DSM 7：**从 v0.1.2 起也能不配置就启动。通过 DSM 应用菜单或 `http://<NAS-IP>:9898/ui/` 打开 Web UI，保存 **PS5 IP** 和 **PKG 库路径**即可；首次安装不再要求修改 `config.env`。升级保留已有配置，旧的 `CHANGE_ME_*` 占位符仅在运行时处理。若自定义目录不可访问，仍需修复路径或权限。
 4. 通过平时使用的 PS5 WebKit / exploit 流程在 PS5 上加载 `pkg-receiver.elf`。接收端监听 TCP `12800`，NAS 通过 UDP `12801` 接收在线信标。
 5. 点击 DSM 应用菜单图标，或直接打开 `http://<NAS-IP>:9898/ui/`，选择 PKG 并点击**安装**；PS5 会通过 HTTP 从 NAS 拉取 PKG。
 
@@ -78,11 +78,11 @@ GO_BIN=/path/to/go ./nas/spk/build-dsm6.sh
 node --test nas/internal/httpserver/ui.test.cjs
 ```
 
-产物输出到 `nas/spk/dist/`，默认版本为 `0.1.1`。SPK 构建不等于 Docker 镜像同步发布。
+产物输出到 `nas/spk/dist/`，默认版本为 `0.1.2`。SPK 构建不等于 Docker 镜像同步发布。
 
 ## 配置
 
-原生 SPK 的可编辑配置位于 `/var/packages/PKGSenderNAS/var/config.env`。DSM 7 需要在服务启动前提供有效的 `PKGSENDER_PUBLIC_BASE_URL`、`PKGSENDER_PS5_IP` 和 `PKGSENDER_PACKAGE_DIR`，示例：
+原生 SPK 的可编辑配置位于 `/var/packages/PKGSenderNAS/var/config.env`。**DSM6 和 DSM7 v0.1.2 均提供免预配置首次启动**：使用套件自有空目录、空 PS5 IP，启动后在 Web UI 中配置。如需固定 NAS 公共地址或设置其他高级选项，可手工修改：
 
 ```sh
 PKGSENDER_PUBLIC_BASE_URL="http://192.168.1.20:9898"
@@ -93,7 +93,7 @@ PKGSENDER_PACKAGE_DIR="/volume1/PS5/PKG"
 # PKGSENDER_PACKAGE_DIRS='["/volume1/PS5/PKG","/volume1/More/PKG"]'
 ```
 
-DSM 6 友好版的 PS5 IP、公共下载地址默认为空，PKG 库目录默认位于套件的数据目录，可启动后再通过 Web UI 配置。设置 `PKGSENDER_PACKAGE_DIRS` 后，优先使用多目录配置；旧的单目录 `PKGSENDER_PACKAGE_DIR` 仍兼容。共享目录权限仍需由 DSM 配置。
+默认公共下载地址为空时，服务会从 HTTP 请求 Host 构造 PKG 下载 URL，因此应使用 PS5 可访问的 NAS 局域网地址打开 Web UI。设置 `PKGSENDER_PACKAGE_DIRS` 后，优先使用多目录配置；旧的单目录 `PKGSENDER_PACKAGE_DIR` 仍兼容。升级不会覆盖已有配置，共享目录权限仍需由 DSM 配置。
 
 ## 文档
 

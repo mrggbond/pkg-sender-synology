@@ -92,7 +92,18 @@ if grep -q '9898' "${PAYLOAD}/var/PKGSenderNAS.sc"; then
     echo "SPK must not re-register port 9898 through DSM port-config." >&2
     exit 1
 fi
-grep -q 'CHANGE_ME_NAS_IP' "${PAYLOAD}/share/config.env.example"
-grep -q 'CHANGE_ME_PS5_IP' "${PAYLOAD}/share/config.env.example"
+grep -q '^PKGSENDER_PACKAGE_DIR="/var/packages/PKGSenderNAS/var/packages"$' "${PAYLOAD}/share/config.env.example"
+grep -q '^PKGSENDER_PUBLIC_BASE_URL=""$' "${PAYLOAD}/share/config.env.example"
+grep -q '^PKGSENDER_PS5_IP=""$' "${PAYLOAD}/share/config.env.example"
+if grep -q 'CHANGE_ME_' "${PAYLOAD}/share/config.env.example"; then
+    echo "DSM7 friendly startup must not ship CHANGE_ME placeholders." >&2
+    exit 1
+fi
+grep -q 'VAR_DIR}/packages' "${TOP}/scripts/start-stop-status"
+grep -q 'PKGSENDER_CONFIG_FILE' "${TOP}/scripts/start-stop-status"
+if grep -q 'installed but not configured' "${TOP}/scripts/start-stop-status"; then
+    echo "DSM7 friendly package must not skip starting before Web UI configuration." >&2
+    exit 1
+fi
 
 echo "SPK structure verification: PASS"

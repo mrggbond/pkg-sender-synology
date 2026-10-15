@@ -42,7 +42,7 @@ load_config() {
     . "${CONFIG_FILE}"
     set +a
 
-    : "${PKGSENDER_PACKAGE_DIR:=}"
+    : "${PKGSENDER_PACKAGE_DIR:=${VAR_DIR}/packages}"
     : "${PKGSENDER_LISTEN:=:9898}"
     : "${PKGSENDER_PUBLIC_BASE_URL:=}"
     : "${PKGSENDER_PS5_IP:=}"
@@ -54,13 +54,25 @@ load_config() {
     : "${PKGSENDER_CONFIG_FILE:=${CONFIG_FILE}}"
     export PKGSENDER_CONFIG_FILE
 
+    # Backward compatibility: upgrades preserve existing config.env verbatim.
+    # Legacy placeholders are only cleared from the process environment.
     case "${PKGSENDER_PUBLIC_BASE_URL}" in
-        ""|*CHANGE_ME*) return 1 ;;
+        *CHANGE_ME*) PKGSENDER_PUBLIC_BASE_URL=""; export PKGSENDER_PUBLIC_BASE_URL ;;
     esac
     case "${PKGSENDER_PS5_IP}" in
-        ""|*CHANGE_ME*) return 1 ;;
+        *CHANGE_ME*) PKGSENDER_PS5_IP=""; export PKGSENDER_PS5_IP ;;
     esac
+    # Old unconfigured packages used /volume1/PS5/PKG as an example path.
+    # If that specific default is absent, use the package-owned empty directory.
+    # Never silently replace other custom paths or an explicit multi-root setting.
+    if [ "${PKGSENDER_PACKAGE_DIR}" = "/volume1/PS5/PKG" ] &&
+       [ ! -e "${PKGSENDER_PACKAGE_DIR}" ] &&
+       [ -z "${PKGSENDER_PACKAGE_DIRS:-}" ]; then
+        PKGSENDER_PACKAGE_DIR="${VAR_DIR}/packages"
+        export PKGSENDER_PACKAGE_DIR
+    fi
     [ -n "${PKGSENDER_PACKAGE_DIR}" ] || return 1
+    export PKGSENDER_PACKAGE_DIR PKGSENDER_LISTEN PKGSENDER_PUBLIC_BASE_URL PKGSENDER_PS5_IP PKGSENDER_PS5_PORT
     return 0
 }
 
@@ -79,18 +91,28 @@ start_daemon() {
     fi
 
     if ! load_config; then
-        echo "${DISPLAY_NAME} is installed but not configured."
-        echo "Edit ${CONFIG_FILE}, then start the package again."
-        return 0
+        echo "${DISPLAY_NAME}: configuration file is missing or invalid: ${CONFIG_FILE}" >&2
+        return 1
     fi
 
-    if [ ! -d "${PKGSENDER_PACKAGE_DIR}" ]; then
-        echo "${DISPLAY_NAME}: package directory does not exist: ${PKGSENDER_PACKAGE_DIR}" >&2
-        return 1
-    fi
-    if [ ! -r "${PKGSENDER_PACKAGE_DIR}" ] || [ ! -x "${PKGSENDER_PACKAGE_DIR}" ]; then
-        echo "${DISPLAY_NAME}: package user cannot read/traverse: ${PKGSENDER_PACKAGE_DIR}" >&2
-        return 1
+    # Explicit multi-root settings supersede PKGSENDER_PACKAGE_DIR.
+    # The Go package store validates every configured root itself.
+    if [ -z "${PKGSENDER_PACKAGE_DIRS:-}" ]; then
+        if [ ! -d "${PKGSENDER_PACKAGE_DIR}" ]; then
+            if [ "${PKGSENDER_PACKAGE_DIR}" = "${VAR_DIR}/packages" ]; then
+                mkdir -p "${PKGSENDER_PACKAGE_DIR}" || {
+                    echo "${DISPLAY_NAME}: cannot create default package directory: ${PKGSENDER_PACKAGE_DIR}" >&2
+                    return 1
+                }
+            else
+                echo "${DISPLAY_NAME}: package directory does not exist: ${PKGSENDER_PACKAGE_DIR}" >&2
+                return 1
+            fi
+        fi
+        if [ ! -r "${PKGSENDER_PACKAGE_DIR}" ] || [ ! -x "${PKGSENDER_PACKAGE_DIR}" ]; then
+            echo "${DISPLAY_NAME}: package user cannot read/traverse: ${PKGSENDER_PACKAGE_DIR}" >&2
+            return 1
+        fi
     fi
 
     echo "Starting ${DISPLAY_NAME}..."
