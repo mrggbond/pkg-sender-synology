@@ -20,9 +20,9 @@ GO_BIN=/path/to/go ./build.sh
 
 Defaults:
 
-- version: `0.1.0-0021`
+- version: `0.1.1`
 - architecture: `x86_64`
-- output: `dist/PKGSenderNAS-0.1.0-0021-x86_64.spk`
+- output: `dist/PKGSenderNAS-0.1.1-x86_64.spk`
 
 ARM64 package:
 
@@ -30,7 +30,9 @@ ARM64 package:
 ARCH=armv8 GO_BIN=/path/to/go ./build.sh
 ```
 
-The build runs the native Go test suite first, then cross-builds a static Linux binary, assembles an xz-compressed `package.tgz`, creates the plain-tar SPK archive with extended attributes disabled, and runs `verify.sh`.
+Run the standalone Web UI regression suite with `node --test ../internal/httpserver/ui.test.cjs`. The build runs the native Go test suite first, then cross-builds a static Linux binary, assembles an xz-compressed `package.tgz`, creates the plain-tar SPK archive with extended attributes disabled, and runs `verify.sh`.
+
+For DSM 6 x86_64, use `GO_BIN=/path/to/go ./build-dsm6.sh`; this produces `dist/PKGSenderNAS-0.1.1-dsm6-x86_64.spk`. DSM 6 and DSM 7 use separate package layouts but share the Web UI and desktop application assets. The DSM 6 Package Center icon uses 72×72, whereas DSM 7 uses 64×64.
 
 ## Persistent configuration
 

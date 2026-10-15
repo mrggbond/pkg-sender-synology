@@ -4,7 +4,7 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 NAS_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
 OUT_DIR="${OUT_DIR:-${SCRIPT_DIR}/dist}"
-VERSION="${VERSION:-0.1.0-0021}"
+VERSION="${VERSION:-0.1.1}"
 ARCH="${ARCH:-x86_64}"
 GO_BIN="${GO_BIN:-go}"
 
@@ -73,8 +73,7 @@ cp "${SCRIPT_DIR}/payload/share/config.env.example" "${PAYLOAD}/share/config.env
 cp "${SCRIPT_DIR}/payload/var/PKGSenderNAS.sc" "${PAYLOAD}/var/PKGSenderNAS.sc"
 cp "${SCRIPT_DIR}/payload/ui/config" "${PAYLOAD}/ui/config"
 cp "${SCRIPT_DIR}/payload/ui/index.html" "${PAYLOAD}/ui/index.html"
-cp "${SCRIPT_DIR}/PACKAGE_ICON.PNG" "${PAYLOAD}/ui/images/icon_16.png"
-cp "${SCRIPT_DIR}/PACKAGE_ICON.PNG" "${PAYLOAD}/ui/images/icon_32.png"
+cp "${SCRIPT_DIR}/payload/ui/images/"*.png "${PAYLOAD}/ui/images/"
 
 
 sed     -e "s/@VERSION@/${VERSION}/g"     -e "s/@ARCH@/${INFO_ARCH}/g"     "${SCRIPT_DIR}/INFO.in" >"${SPK_ROOT}/INFO"

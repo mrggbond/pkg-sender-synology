@@ -1,10 +1,14 @@
 {
-  "PKGSenderNAS": {
-    "title": "PS5 PKG Sender",
-    "desc": "Open PS5 PKG Sender Web UI",
-    "icon": "images/icon_{0}.png",
-    "type": "url",
-    "url": "index.html",
-    "allUsers": true
+  ".url": {
+    "PKGSenderNAS": {
+      "title": "PS5 PKG Sender",
+      "desc": "Open PS5 PKG Sender Web UI",
+      "icon": "images/icon_{0}.png",
+      "type": "url",
+      "protocol": "http",
+      "port": "9898",
+      "url": "/ui/",
+      "allUsers": true
+    }
   }
 }

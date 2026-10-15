@@ -66,13 +66,19 @@ EXPECTED_MD5="$(awk -F'"' '/^checksum="/ {print $2; exit}' "${TOP}/INFO")"
     echo "package.tgz checksum mismatch." >&2
     exit 1
 }
-for required in     bin/pkg-sender-nas     share/config.env.example     var/PKGSenderNAS.sc     ui/config     ui/index.html     ui/images/icon_16.png     ui/images/icon_32.png
+for required in     bin/pkg-sender-nas     share/config.env.example     var/PKGSenderNAS.sc     ui/config     ui/index.html     ui/images/icon_16.png     ui/images/icon_24.png     ui/images/icon_32.png     ui/images/icon_48.png     ui/images/icon_64.png     ui/images/icon_72.png     ui/images/icon_256.png
 do
     [ -f "${PAYLOAD}/${required}" ] || {
         echo "Missing payload entry: ${required}" >&2
         exit 1
     }
 done
+
+grep -q '"\.url"' "${PAYLOAD}/ui/config"
+grep -q '"PKGSenderNAS"' "${PAYLOAD}/ui/config"
+grep -Eq '"protocol"[[:space:]]*:[[:space:]]*"http"' "${PAYLOAD}/ui/config"
+grep -Eq '"port"[[:space:]]*:[[:space:]]*"9898"' "${PAYLOAD}/ui/config"
+grep -Eq '"url"[[:space:]]*:[[:space:]]*"/ui/"' "${PAYLOAD}/ui/config"
 
 [ -x "${PAYLOAD}/bin/pkg-sender-nas" ] || {
     echo "Payload binary is not executable." >&2

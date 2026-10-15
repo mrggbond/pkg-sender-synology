@@ -94,13 +94,29 @@ for required in \
     ui/config \
     ui/index.html \
     ui/images/icon_16.png \
-    ui/images/icon_32.png
+    ui/images/icon_24.png \
+    ui/images/icon_32.png \
+    ui/images/icon_48.png \
+    ui/images/icon_64.png \
+    ui/images/icon_72.png \
+    ui/images/icon_256.png
 do
     [ -f "${PAYLOAD}/${required}" ] || {
         echo "Missing payload entry: ${required}" >&2
         exit 1
     }
 done
+
+cmp -s "${TOP}/PACKAGE_ICON.PNG" "${PAYLOAD}/ui/images/icon_72.png" || {
+    echo "DSM6 Package Center icon must be the 72x72 desktop icon." >&2
+    exit 1
+}
+
+grep -q '"\.url"' "${PAYLOAD}/ui/config"
+grep -q '"PKGSenderNAS"' "${PAYLOAD}/ui/config"
+grep -Eq '"protocol"[[:space:]]*:[[:space:]]*"http"' "${PAYLOAD}/ui/config"
+grep -Eq '"port"[[:space:]]*:[[:space:]]*"9898"' "${PAYLOAD}/ui/config"
+grep -Eq '"url"[[:space:]]*:[[:space:]]*"/ui/"' "${PAYLOAD}/ui/config"
 
 [ -x "${PAYLOAD}/bin/pkg-sender-nas" ] || {
     echo "Payload binary is not executable." >&2
